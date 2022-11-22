@@ -1,14 +1,15 @@
-pub(crate) mod trivial {
+pub(crate) mod compute {
     extern crate ocl;
 
     use std::ops::Index;
     use ocl::{flags, Platform, Device, Context, Queue, Program, Buffer, Kernel};
 
-    pub(crate) fn trivial_fn() -> ocl::Result<()> {
+    /// Returns a buffer containing computed 2d grid
+    pub(crate) fn compute_2d(array_vec: &Vec<u8>, dimensions: &[u32; 2]) -> ocl::Result<(Buffer<u8>, Buffer<u8>)> {
         let src = r#"
             __kernel void add(
-                __global uint* in_buffer,
-                __global uint* out_buffer,
+                __global uchar* in_buffer,
+                __global uchar* out_buffer,
                 __global int* stencil_buffer,
                 uint stencil_size,
                 int array_size)
@@ -22,8 +23,8 @@ pub(crate) mod trivial {
                     }
                 }
 
-                out_buffer[get_global_id(0)] = neighbors;
-                return;
+                // out_buffer[get_global_id(0)] = neighbors;
+                // return;
 
                 if (neighbors == 2) {
                     out_buffer[get_global_id(0)] = in_buffer[get_global_id(0)];
@@ -37,8 +38,6 @@ pub(crate) mod trivial {
 
                 out_buffer[get_global_id(0)] = 0;
             }"#;
-
-        let dimensions = [10u32, 10u32];
 
         let stencil: [[i32; 2]; 8] = [
             [-1, -1],
@@ -64,7 +63,7 @@ pub(crate) mod trivial {
             .build(&context)?;
 
         let queue = Queue::new(&context, device, None)?;
-        let dims = 360;
+        let dims = array_vec.len();
 
         let stencil_buffer = Buffer::<i32>::builder()
             .queue(queue.clone())
@@ -84,7 +83,6 @@ pub(crate) mod trivial {
 
                 let mut offset = 1i32;
                 for x in dimensions[0..d].into_iter() { offset *= *x as i32 }
-                println!("{} + {:?} = {}", s[0], &dimensions[0..d], offset * s[d]);
                 index += s[d] * offset;
             }
             stencil_vec.push(index);
@@ -94,36 +92,22 @@ pub(crate) mod trivial {
             stencil_buffer.write(&stencil_vec).enq().unwrap();
         }
 
-        let mut in_buffer = Buffer::<u32>::builder()
+        let mut in_buffer = Buffer::<u8>::builder()
             .queue(queue.clone())
-            .flags(flags::MEM_READ_ONLY)
+            .flags(flags::MEM_WRITE_ONLY)
             .len(dims)
             .build()?;
 
-        let mut array_vec = Vec::with_capacity(in_buffer.len());
-
-        for index in 0..in_buffer.len() {
-            if index % 3 == 0 {
-                array_vec.push(1);
-            } else {
-                array_vec.push(0);
-            }
-        }
-
         unsafe {
-            in_buffer.write(&array_vec).enq().unwrap();
+            in_buffer.write(array_vec).enq().unwrap();
         }
 
-        println!("{:?}", in_buffer);
-
-        let out_buffer = Buffer::<u32>::builder()
+        let out_buffer = Buffer::<u8>::builder()
             .queue(queue.clone())
             .flags(flags::MEM_WRITE_ONLY)
             .len(dims)
             .fill_val(0)
             .build()?;
-
-        println!("Output buffer len is: {:?}", out_buffer.len());
 
         let kernel = Kernel::builder()
             .program(&program)
@@ -146,28 +130,6 @@ pub(crate) mod trivial {
                 .enq()?;
         }
 
-        let mut vec = vec![0; dims];
-        in_buffer.read(&mut vec).enq()?;
-
-        for x in 0..(dimensions[0] * dimensions[1]) {
-            if x.rem_euclid(10) == 0 {
-                println!("\n");
-            }
-            print!("{:^8?}", vec[x as usize]);
-        }
-        println!("\n");
-
-        let mut vec = vec![0; dims];
-        out_buffer.read(&mut vec).enq()?;
-
-        for x in 0..(dimensions[0] * dimensions[1]) {
-            if x.rem_euclid(10) == 0 {
-                println!("\n");
-            }
-            print!("{:^8?}", vec[x as usize]);
-        }
-        println!("\n");
-
-        Ok(())
+        Ok((in_buffer, out_buffer))
     }
 }

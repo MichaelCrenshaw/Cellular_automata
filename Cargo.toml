@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 ocl = "0.19.4"
+glium = "0.32.1"
