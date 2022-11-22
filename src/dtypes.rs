@@ -1,14 +1,15 @@
 pub(crate) mod dtypes {
     use std::fmt::{Debug, Formatter};
     use std::ops::Index;
+    use glium::*;
 
     struct BitBoard2D<'a> {
         data: Vec<u8>,
-        dims: &'a [u32]
+        dims: &'a [u8]
     }
 
     impl BitBoard2D<'_> {
-        pub fn new(dims: &[u32]) -> Box<BitBoard2D<'_>> {
+        pub fn new(dims: &[u8]) -> Box<BitBoard2D<'_>> {
             let board = (0..(dims[0] * dims[1])).into_iter().map(|_| 0b_0000_0000).collect::<Vec<u8>>();
             Box::new(BitBoard2D {
                 data: board,
@@ -24,7 +25,7 @@ pub(crate) mod dtypes {
             (self.data.len() * 8) as usize
         }
 
-        pub fn get_byte(&self, address: &[u32; 2]) -> Option<&u8> {
+        pub fn get_byte(&self, address: &[u8; 2]) -> Option<&u8> {
             let index = address[0] + (address[1] * self.dims[0]);
             println!("{}", index);
 
@@ -34,8 +35,8 @@ pub(crate) mod dtypes {
             }
         }
 
-        pub fn get(&self, address: &[u32; 2]) -> Option<bool> {
-            let u8_group: &u8 = self.get_byte(&[(address[0] / 8) as u32, (address[1] / 8) as u32])?;
+        pub fn get(&self, address: &[u8; 2]) -> Option<bool> {
+            let u8_group: &u8 = self.get_byte(&[(address[0] / 8), (address[1] / 8)])?;
 
             let rem = (address[0] + (address[1] * self.dims[0])) % 8;
 
@@ -44,9 +45,9 @@ pub(crate) mod dtypes {
             Some((mask & u8_group) != 0b_0000_0000)
         }
 
-        pub fn set_byte(&mut self, address: &[u32; 2], value: u8) -> Result<(), &str> {
+        pub fn set_byte(&mut self, address: &[u8; 2], value: u8) -> Result<(), &str> {
             let index = address[0] + (address[1] * self.dims[0]);
-            if index > self.len() {
+            if index as u32 > self.len() {
                 return Err("Out of index range");
             }
 
@@ -55,10 +56,10 @@ pub(crate) mod dtypes {
             Ok(())
         }
 
-        pub fn set(&mut self, address: &[u32; 2], value: bool) -> Result<(), &str> {
+        pub fn set(&mut self, address: &[u8; 2], value: bool) -> Result<(), &str> {
             // validity of address is only checked once, in set_byte
             // as such this function assumes a valid index until the very end
-            let byte_index = &[(address[0] / 8) as u32, (address[1] / 8) as u32];
+            let byte_index = &[(address[0] / 8), (address[1] / 8)];
 
             let mut byte = match self.get_byte(byte_index) {
                 None => { return Err("Address is out of index") }
@@ -86,17 +87,35 @@ pub(crate) mod dtypes {
             out += &*format!("{:^8}", '+');
             for x in 0..(self.dims[0]*8) {out += &*format!("{:^8}", x)}
 
-            for y in 0..(self.dims[0]) as u32 {
+            for y in 0..(self.dims[0]) as u8 {
                 out += "\r\n";
                 out += &*format!("{:^8}", y);
-                for x in 0..(self.dims[1]*8) as u32 {
+                for x in 0..(self.dims[1]*8) as u8 {
                     println!("{}, {}", x, y);
                     out += &*format!("{:^8}", self.get(&[x, y]).unwrap())
                 }
             }
 
-            f.write_str(&*out);
+            f.write_str(&*out).expect("Debug print failed");
             Ok(())
+        }
+    }
+
+    struct NeighborStencil<'a> {
+        positions: Vec<&'a[i8]>,
+    }
+
+    impl<'a> NeighborStencil<'a> {
+        fn len(&self) -> usize {
+            self.positions.len()
+        }
+    }
+
+    impl<'a> Iterator for NeighborStencil<'a> {
+        type Item = &'a[i8];
+
+        fn next(&mut self) -> Option<Self::Item> {
+            todo!()
         }
     }
 
@@ -116,7 +135,7 @@ pub(crate) mod dtypes {
         fn test_board_set_read() {
             let mut board = BitBoard2D::new(&[10, 10]);
 
-            let mut cases: Vec<([u32; 2], u8)> = vec![
+            let mut cases: Vec<([u8; 2], u8)> = vec![
                 ([0, 0], 0),
                 ([9, 9], 0),
                 ([9, 0], 0),
@@ -148,7 +167,7 @@ pub(crate) mod dtypes {
         fn test_board_set_read_bitwise() {
             let mut board = BitBoard2D::new(&[10, 10]);
 
-            let mut cases: Vec<([u32; 2], bool)> = vec![
+            let mut cases: Vec<([u8; 2], bool)> = vec![
                 ([0, 0], false),
                 ([79, 79], false),
                 ([79, 0], false),
