@@ -8,10 +8,17 @@ extern crate glium;
 
 use ocl::*;
 use ocl::Buffer as Buffer;
-use glium::glutin::{event_loop, window, dpi};
+
+use glium::{Display, GlObject, Surface, uniform, VertexBuffer};
+use glium::buffer::{ Buffer as GLBuffer, BufferType, BufferMode };
+use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
-use glium::{Display, GlObject};
-use glium::buffer::{Buffer as GLBuffer, BufferType, BufferMode};
+
+use dtypes::dtypes::{ Vertex, Quad };
+
+// TODO: remove temp imports
+extern crate image;
+use std::io::Cursor;
 
 fn main() {
     // Init dimensions
@@ -28,11 +35,12 @@ fn main() {
         }
     }
 
-    // Create Glium eventloop, window, and builders (including opengl context)
+    // Create Glium event loop, window, and builders (including opengl context)
     let mut events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
-        .with_title("2d Cellular Automata");
+        .with_title("2d Cellular Automata")
+        .with_transparent(true);
     let cb = ContextBuilder::new();
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
@@ -87,9 +95,109 @@ fn main() {
     }
 
     // TODO: move code above this to other functions or constants
-    // Main Loop
 
-    // main loop
+
+    // TODO: remove testcode below
+    let top = Vertex { position: [0.0, 0.25], tex_coords: [0.0, 1.0] };
+    let left = Vertex { position: [-0.25, -0.25], tex_coords: [0.0, 0.0] };
+    let right = Vertex { position: [0.25, -0.25], tex_coords: [1.0, 0.0] };
+    let shape = vec![top, left, right];
+
+    let vertex_buffer = VertexBuffer::new(&display, &shape).unwrap();
+    let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+
+    let mut offset_x: f32 = -0.5;
+    let mut offset_y: f32 = -0.5;
+
+    let mut movement = [0.0002, 0.0001];
+
+    let image = image::load(Cursor::new(&include_bytes!("C:\\Users\\Michael\\CLionProjects\\gpu_computing\\download.png")),
+                                                    image::ImageFormat::Png).unwrap().to_rgba8();
+    let image_dimensions = image.dimensions();
+    let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
+    let texture = glium::texture::SrgbTexture2d::new(&display, image).unwrap();
+
+    let triangle_shader_src = r#"
+        #version 140
+
+        in vec2 position;
+        in vec2 tex_coords;
+        out vec2 v_tex_coords;
+
+        uniform mat4 transform_matrix;
+
+        void main() {
+            v_tex_coords = tex_coords;
+            gl_Position = transform_matrix * vec4(position, 0.0, 1.0);
+        }
+    "#;
+
+    let fragment_shader_src = r#"
+        #version 140
+
+        in vec2 v_tex_coords;
+        out vec4 color;
+
+        uniform sampler2D tex;
+
+        void main() {
+            color = texture(tex, v_tex_coords);
+        }
+    "#;
+
+    let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
+
+
+    // Main loop
+    let start_time = std::time::Instant::now();
+    events_loop.run(move |event, _, control_flow| {
+
+        // todo: change frame logic to not wait the event loop, but only draw at the correct rate
+        //       this will allow key-responsiveness outside of frame draw intervals
+        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(1000);
+        *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
+
+        offset_x += movement[0];
+        if offset_x < -1.0 || offset_x > 1.0 {
+            movement[0] = -movement[0];
+        }
+
+        offset_y -= movement[1];
+        if offset_y < -1.0 || offset_y > 1.0 {
+            movement[1] = -movement[1];
+        }
+
+        let mut target = display.draw();
+        target.clear_color(0.1, 0.1, 0.1, 0.1);
+        target.draw(&vertex_buffer, &indices, &program, &uniform! {
+            transform_matrix: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [ offset_x , offset_y, 0.0, 1.0f32]
+            ],
+            tex: &texture
+        },&Default::default()).unwrap();
+        target.finish().unwrap();
+
+        match event {
+            event::Event::WindowEvent { event, .. } => match event {
+                event::WindowEvent::CloseRequested => {
+                    *control_flow = event_loop::ControlFlow::Exit;
+                    return;
+                },
+                _ => return,
+            },
+            event::Event::NewEvents(cause) => match cause {
+                event::StartCause::ResumeTimeReached { .. } => (),
+                event::StartCause::Init => (),
+                _ => return,
+            },
+            _ => return
+        }
+    });
+
+    // TODO: remove testcode below
     for _ in 0..10 {
         let mut vec = &out_buffer.read().unwrap();
 
@@ -100,7 +208,7 @@ fn main() {
             print!("{:^8?}", vec[x as usize]);
         }
         println!("\n");
-
+        // Compute next step of game
         compute::compute::compute_2d_gl(
             in_buffer.get_id(),
             out_buffer.get_id(),

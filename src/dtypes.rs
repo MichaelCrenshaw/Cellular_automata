@@ -195,4 +195,54 @@ pub(crate) mod dtypes {
             }
         }
     }
+
+    #[derive(Copy, Clone)]
+    pub(crate) struct Vertex {
+        pub(crate) position: [f32; 2],
+        pub(crate) tex_coords: [f32; 2],
+    }
+    implement_vertex!(Vertex, position, tex_coords);
+
+    #[derive(Copy, Clone)]
+    pub(crate) struct Quad {
+        positions: [[f32; 2]; 4],
+        vertices: [Vertex; 4],
+        indices: [u16;6],
+    }
+
+    impl Quad {
+        fn new_rect(height: f32, width: f32, center: &[f32; 2]) -> Self {
+
+            let positions = [
+                [center[0] - width / 2.0, center[1] - height / 2.0],
+                [center[0] - width / 2.0, center[1] + height / 2.0],
+                [center[0] + width / 2.0, center[1] - height / 2.0],
+                [center[0] + width / 2.0, center[1] + height / 2.0],
+            ];
+
+            let vertices = [
+                Vertex { position: positions[0], tex_coords: [0.0, 0.0] },
+                Vertex { position: positions[1], tex_coords: [1.0, 0.0] },
+                Vertex { position: positions[2], tex_coords: [0.0, 1.0] },
+                Vertex { position: positions[3], tex_coords: [1.0, 1.0] },
+            ];
+
+            Quad {
+                positions,
+                vertices,
+                indices: [
+                    0, 1, 2,
+                    1, 2, 3,
+                ],
+            }
+        }
+
+        fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+            VertexBuffer::new(display, &self.vertices).unwrap()
+        }
+
+        fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+            IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &self.indices).unwrap()
+        }
+    }
 }
