@@ -13,13 +13,9 @@ use glium::{Display, GlObject, Surface, uniform, VertexBuffer};
 use glium::buffer::{ Buffer as GLBuffer, BufferType, BufferMode };
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
-
-use dtypes::dtypes::{ Vertex, Quad };
-
-// TODO: remove temp imports
-extern crate image;
-use std::io::Cursor;
 use glium::texture::buffer_texture::{BufferTexture, BufferTextureRef, BufferTextureType};
+
+use dtypes::dtypes::{ Vertex, Quad, LastComputed };
 
 fn main() {
     // Init dimensions
@@ -29,7 +25,7 @@ fn main() {
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
-        if index % 100 == 0 || index % 100 == 99 {
+        if index % 100 == 0 || index % 11 == 3 {
             array_vec.push(1);
         } else {
             array_vec.push(0);
@@ -57,6 +53,8 @@ fn main() {
     // Create OpenGL buffers, which will be used for each game-update; then swapped to compute the next stage
     let mut in_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
     let mut out_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
+    let in_buffer_id = in_buffer.get_id();
+    let out_buffer_id = out_buffer.get_id();
 
     // Create OpenCL buffer containing index offsets for each cell's neighbors
     let stencil: [[i32; 2]; 8] = [
@@ -134,7 +132,9 @@ fn main() {
 
         void main() {
             int buffer_index = int(floor(v_tex_coords[0] * 100) + floor(v_tex_coords[1] * 100) * 100 );
-            color = vec4(0.0, 0.0, 0.0, vec4(texelFetch(tex, buffer_index))[0]);
+            bool alive = false;
+            if (texelFetch(tex, buffer_index)[0] > 0.5) alive = true;
+            color = alive ? vec4(1.0, 1.0, 1.0, 1.0) : vec4(0.1, 0.1, 0.1, 1.0);
         }
     "#;
 
@@ -142,16 +142,16 @@ fn main() {
 
 
     // Main loop
-    let start_time = std::time::Instant::now();
+    let mut computed_buffer = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
 
         // todo: change frame logic to not wait the event loop, but only draw at the correct rate
         //       this will allow key-responsiveness outside of frame draw intervals
-        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(1000);
+        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(250_000);
         *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
 
         let mut target = display.draw();
-        target.clear_color_and_depth((0.1, 0.1, 0.1, 0.1), 1.0);
+        target.clear_color_and_depth((0.1, 0.1, 0.1, 1.0), 1.0);
 
         let perspective = {
             let (width, height) = target.get_dimensions();
@@ -180,6 +180,14 @@ fn main() {
             .. Default::default()
         };
 
+        let texture_buffer = {
+            if LastComputed::IN == computed_buffer {
+                &texture_in_cycle
+            } else {
+                &texture_out_cycle
+            }
+        };
+
         target.draw(
             &vertex_buffer,
             &indices,
@@ -191,7 +199,7 @@ fn main() {
                     [0.0, 0.0, 1.0, 0.0],
                     [ 0.0 , 0.0, 2.0, 1.0f32]
                 ],
-                tex: &texture_in_cycle,
+                tex: texture_buffer,
                 perspective: perspective,
             },
             &params
@@ -200,6 +208,21 @@ fn main() {
 
         match event {
             event::Event::WindowEvent { event, .. } => match event {
+                event::WindowEvent::KeyboardInput { device_id, input, is_synthetic } => match input.virtual_keycode {
+                    Some(event::VirtualKeyCode::Tab) => {
+                        computed_buffer = compute_game_state(
+                            in_buffer_id,
+                            out_buffer_id,
+                            &stencil_buffer,
+                            &context,
+                            &device,
+                            &queue,
+                            worker_dims,
+                            computed_buffer,
+                        );
+                    },
+                    None | Some(_) => return,
+                }
                 event::WindowEvent::CloseRequested => {
                     *control_flow = event_loop::ControlFlow::Exit;
                     return;
@@ -207,7 +230,18 @@ fn main() {
                 _ => return,
             },
             event::Event::NewEvents(cause) => match cause {
-                event::StartCause::ResumeTimeReached { .. } => (),
+                event::StartCause::ResumeTimeReached { .. } => (
+                    computed_buffer = compute_game_state(
+                        in_buffer_id,
+                        out_buffer_id,
+                        &stencil_buffer,
+                        &context,
+                        &device,
+                        &queue,
+                        worker_dims,
+                        computed_buffer,
+                    )
+                ),
                 event::StartCause::Init => (),
                 _ => return,
             },
@@ -215,21 +249,28 @@ fn main() {
         }
     });
 
-    // TODO: remove testcode below
-    for _ in 0..10 {
-        let mut vec = &out_buffer.read().unwrap();
-
-        for x in 0..vec.len() {
-            if x.rem_euclid(dimensions[1] as usize) == 0 {
-                print!("\n");
-            }
-            print!("{:^8?}", vec[x as usize]);
+    pub(crate) fn compute_game_state(
+        in_buffer_id: u32,
+        out_buffer_id: u32,
+        stencil_buffer: &Buffer<i32>,
+        context: &Context,
+        device: &Device,
+        queue: &Queue,
+        worker_dims: usize,
+        last_computed: LastComputed
+    ) -> LastComputed {
+        let mut bufffer_1 = 0;
+        let mut bufffer_2 = 0;
+        if last_computed == LastComputed::IN {
+            bufffer_1 = in_buffer_id;
+            bufffer_2 = out_buffer_id;
+        } else {
+            bufffer_1 = out_buffer_id;
+            bufffer_2 = in_buffer_id;
         }
-        println!("\n");
-        // Compute next step of game
         compute::compute::compute_2d_gl(
-            in_buffer.get_id(),
-            out_buffer.get_id(),
+            bufffer_1,
+            bufffer_2,
             &stencil_buffer,
             &context,
             &device,
@@ -237,8 +278,7 @@ fn main() {
             worker_dims,
         ).unwrap();
 
-        // Swap input and output buffers for the next gpu cycle
-        (in_buffer, out_buffer) = (out_buffer, in_buffer);
+        { if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN}}
     }
 
 }

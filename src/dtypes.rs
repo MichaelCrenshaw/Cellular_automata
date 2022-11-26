@@ -3,6 +3,13 @@ pub mod dtypes {
     use std::ops::Index;
     use glium::*;
 
+    /// Game-State objects
+    #[derive(PartialEq, Copy, Clone)]
+    pub(crate) enum LastComputed {
+        IN,
+        OUT,
+    }
+
     struct BitBoard2D<'a> {
         data: Vec<u8>,
         dims: &'a [u8]
@@ -196,6 +203,7 @@ pub mod dtypes {
         }
     }
 
+    /// Rendering objects
     #[derive(Copy, Clone)]
     pub struct Vertex {
         pub(crate) position: [f32; 3],
