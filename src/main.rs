@@ -19,16 +19,17 @@ use dtypes::dtypes::{ Vertex, Quad };
 // TODO: remove temp imports
 extern crate image;
 use std::io::Cursor;
+use glium::texture::buffer_texture::{BufferTexture, BufferTextureRef, BufferTextureType};
 
 fn main() {
     // Init dimensions
-    let dimensions: [u32; 2] = [25, 25];
+    let dimensions: [u32; 2] = [100, 100];
     let array_len = dimensions[0] * dimensions[1];
 
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
-        if index % 5 == 1 || index % 7 == 0 {
+        if index % 100 == 0 || index % 100 == 99 {
             array_vec.push(1);
         } else {
             array_vec.push(0);
@@ -41,7 +42,7 @@ fn main() {
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
         .with_title("2d Cellular Automata")
         .with_transparent(true);
-    let cb = ContextBuilder::new();
+    let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
     // Init ocl interop context from active opengl context
@@ -98,37 +99,28 @@ fn main() {
 
 
     // TODO: remove testcode below
-    let top = Vertex { position: [0.0, 0.25], tex_coords: [0.0, 1.0] };
-    let left = Vertex { position: [-0.25, -0.25], tex_coords: [0.0, 0.0] };
-    let right = Vertex { position: [0.25, -0.25], tex_coords: [1.0, 0.0] };
-    let shape = vec![top, left, right];
+    let quad = Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
-    let vertex_buffer = VertexBuffer::new(&display, &shape).unwrap();
-    let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+    let vertex_buffer = quad.get_vertex_buffer(&display);
+    let indices = quad.get_index_buffer(&display);
 
-    let mut offset_x: f32 = -0.5;
-    let mut offset_y: f32 = -0.5;
-
-    let mut movement = [0.0002, 0.0001];
-
-    let image = image::load(Cursor::new(&include_bytes!("C:\\Users\\Michael\\CLionProjects\\gpu_computing\\download.png")),
-                                                    image::ImageFormat::Png).unwrap().to_rgba8();
-    let image_dimensions = image.dimensions();
-    let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-    let texture = glium::texture::SrgbTexture2d::new(&display, image).unwrap();
+    // BufferTexture initialization
+    let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
+    let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
     let triangle_shader_src = r#"
         #version 140
 
-        in vec2 position;
+        in vec3 position;
         in vec2 tex_coords;
         out vec2 v_tex_coords;
 
+        uniform mat4 perspective;
         uniform mat4 transform_matrix;
 
         void main() {
             v_tex_coords = tex_coords;
-            gl_Position = transform_matrix * vec4(position, 0.0, 1.0);
+            gl_Position = perspective * transform_matrix * vec4(position, 1.0);
         }
     "#;
 
@@ -138,10 +130,11 @@ fn main() {
         in vec2 v_tex_coords;
         out vec4 color;
 
-        uniform sampler2D tex;
+        uniform usamplerBuffer tex;
 
         void main() {
-            color = texture(tex, v_tex_coords);
+            int buffer_index = int(floor(v_tex_coords[0] * 100) + floor(v_tex_coords[1] * 100) * 100 );
+            color = vec4(0.0, 0.0, 0.0, vec4(texelFetch(tex, buffer_index))[0]);
         }
     "#;
 
@@ -157,27 +150,52 @@ fn main() {
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(1000);
         *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
 
-        offset_x += movement[0];
-        if offset_x < -1.0 || offset_x > 1.0 {
-            movement[0] = -movement[0];
-        }
-
-        offset_y -= movement[1];
-        if offset_y < -1.0 || offset_y > 1.0 {
-            movement[1] = -movement[1];
-        }
-
         let mut target = display.draw();
-        target.clear_color(0.1, 0.1, 0.1, 0.1);
-        target.draw(&vertex_buffer, &indices, &program, &uniform! {
-            transform_matrix: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [ offset_x , offset_y, 0.0, 1.0f32]
-            ],
-            tex: &texture
-        },&Default::default()).unwrap();
+        target.clear_color_and_depth((0.1, 0.1, 0.1, 0.1), 1.0);
+
+        let perspective = {
+            let (width, height) = target.get_dimensions();
+            let aspect_ratio = height as f32 / width as f32;
+
+            let fov: f32 = 3.141592 / 3.0;
+            let zfar = 1024.0;
+            let znear = 0.1;
+
+            let f = 1.0 / (fov / 2.0).tan();
+
+            [
+                [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
+                [         0.0         ,     f ,              0.0              ,   0.0],
+                [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
+                [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+            ]
+        };
+
+        let params = glium::DrawParameters {
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                .. Default::default()
+            },
+            .. Default::default()
+        };
+
+        target.draw(
+            &vertex_buffer,
+            &indices,
+            &program,
+            &uniform! {
+                transform_matrix: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [ 0.0 , 0.0, 2.0, 1.0f32]
+                ],
+                tex: &texture_in_cycle,
+                perspective: perspective,
+            },
+            &params
+        ).unwrap();
         target.finish().unwrap();
 
         match event {

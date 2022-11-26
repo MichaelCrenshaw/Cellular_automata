@@ -1,4 +1,4 @@
-pub(crate) mod dtypes {
+pub mod dtypes {
     use std::fmt::{Debug, Formatter};
     use std::ops::Index;
     use glium::*;
@@ -197,27 +197,27 @@ pub(crate) mod dtypes {
     }
 
     #[derive(Copy, Clone)]
-    pub(crate) struct Vertex {
-        pub(crate) position: [f32; 2],
+    pub struct Vertex {
+        pub(crate) position: [f32; 3],
         pub(crate) tex_coords: [f32; 2],
     }
     implement_vertex!(Vertex, position, tex_coords);
 
     #[derive(Copy, Clone)]
-    pub(crate) struct Quad {
-        positions: [[f32; 2]; 4],
+    pub struct Quad {
+        positions: [[f32; 3]; 4],
         vertices: [Vertex; 4],
         indices: [u16;6],
     }
 
     impl Quad {
-        fn new_rect(height: f32, width: f32, center: &[f32; 2]) -> Self {
+        pub fn new_rect(height: f32, width: f32, center: &[f32; 2]) -> Self {
 
             let positions = [
-                [center[0] - width / 2.0, center[1] - height / 2.0],
-                [center[0] - width / 2.0, center[1] + height / 2.0],
-                [center[0] + width / 2.0, center[1] - height / 2.0],
-                [center[0] + width / 2.0, center[1] + height / 2.0],
+                [center[0] - width / 2.0, center[1] - height / 2.0, 0.0],
+                [center[0] + width / 2.0, center[1] - height / 2.0, 0.0],
+                [center[0] - width / 2.0, center[1] + height / 2.0, 0.0],
+                [center[0] + width / 2.0, center[1] + height / 2.0, 0.0],
             ];
 
             let vertices = [
@@ -237,11 +237,11 @@ pub(crate) mod dtypes {
             }
         }
 
-        fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+        pub fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
             VertexBuffer::new(display, &self.vertices).unwrap()
         }
 
-        fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+        pub fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
             IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &self.indices).unwrap()
         }
     }
