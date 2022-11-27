@@ -9,11 +9,13 @@ extern crate glium;
 use ocl::*;
 use ocl::Buffer as Buffer;
 
+use compute::compute::*;
 use glium::{Display, GlObject, Surface, uniform, VertexBuffer};
 use glium::buffer::{ Buffer as GLBuffer, BufferType, BufferMode };
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::texture::buffer_texture::{BufferTexture, BufferTextureRef, BufferTextureType};
+use ocl::builders::{KernelBuilder, KernelCmd};
 
 use dtypes::dtypes::{ Vertex, Quad, LastComputed };
 
@@ -36,7 +38,7 @@ fn main() {
     let mut events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
-        .with_title("2d Cellular Automata")
+        .with_title("Cellular Automata")
         .with_transparent(true);
     let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
@@ -48,8 +50,11 @@ fn main() {
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
     let queue = Queue::new(&context, device, None).unwrap();
+    // TODO: Fix work size to never overflow, and always batch at high-efficiency
     let worker_dims = array_vec.len();
+    let program = create_program(&context, device, None);
 
+    // TODO: When using these buffers as TextureBuffers inevitably becomes both too slow and too cumbersome, look into BufferType::UniformBuffer
     // Create OpenGL buffers, which will be used for each game-update; then swapped to compute the next stage
     let mut in_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
     let mut out_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
@@ -94,6 +99,47 @@ fn main() {
     }
 
     // TODO: move code above this to other functions or constants
+
+    // I've tried every way I can think to make the KernelBuilder cloneable, movable, heap-allocated, or whatever works to generate this outside of main.
+    // Annoyingly the library authors have clearly outdated documentation on the process, and haven't responded to other people's issues with this on GitHub.
+    // If I ever figure out this dark magic then I'll write up new docs and initiate a pull request, and move the code below.
+    // Create KernelBuffer to generate kernels from, rather than just reusing existing immutable kernels because OCL doesn't like that other threads "could mutate them"
+    let mut in_buffer_cl = unsafe {
+        Buffer::<u8>::from_gl_buffer(&context, Some(flags::MEM_READ_WRITE), in_buffer_id)
+            .expect("Could not create in CLBuffer")
+    };
+    let mut out_buffer_cl = unsafe {
+        Buffer::<u8>::from_gl_buffer(&context, Some(flags::MEM_READ_WRITE), out_buffer_id)
+            .expect("Could not create in CLBuffer")
+    };
+    in_buffer_cl.set_default_queue(queue.clone());
+    out_buffer_cl.set_default_queue(queue.clone());
+
+    let in_cycle_kernel = Kernel::builder()
+        .program(&program)
+        .name("compute")
+        .queue(queue.clone())
+        .global_work_size(worker_dims)
+        .arg(&in_buffer_cl)
+        .arg(&out_buffer_cl)
+        .arg(&stencil_buffer)
+        .arg(stencil_buffer.len() as u32)
+        .arg(in_buffer_cl.len() as u32)
+        .build()
+        .expect("Could not create out kernel from builder");
+
+    let out_cycle_kernel = Kernel::builder()
+        .program(&program)
+        .name("compute")
+        .queue(queue.clone())
+        .global_work_size(worker_dims)
+        .arg(&out_buffer_cl)
+        .arg(&in_buffer_cl)
+        .arg(&stencil_buffer)
+        .arg(stencil_buffer.len() as u32)
+        .arg(out_buffer_cl.len() as u32)
+        .build()
+        .expect("Could not create out kernel from builder");
 
 
     // TODO: remove testcode below
@@ -142,7 +188,7 @@ fn main() {
 
 
     // Main loop
-    let mut computed_buffer = LastComputed::IN;
+    let mut computed_buffer_flag = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
 
         // todo: change frame logic to not wait the event loop, but only draw at the correct rate
@@ -181,7 +227,7 @@ fn main() {
         };
 
         let texture_buffer = {
-            if LastComputed::IN == computed_buffer {
+            if LastComputed::IN == computed_buffer_flag {
                 &texture_in_cycle
             } else {
                 &texture_out_cycle
@@ -210,15 +256,13 @@ fn main() {
             event::Event::WindowEvent { event, .. } => match event {
                 event::WindowEvent::KeyboardInput { device_id, input, is_synthetic } => match input.virtual_keycode {
                     Some(event::VirtualKeyCode::Tab) => {
-                        computed_buffer = compute_game_state(
-                            in_buffer_id,
-                            out_buffer_id,
-                            &stencil_buffer,
-                            &context,
-                            &device,
+                        computed_buffer_flag = compute_game_state(
+                            &in_cycle_kernel,
+                            &out_cycle_kernel,
                             &queue,
-                            worker_dims,
-                            computed_buffer,
+                            computed_buffer_flag,
+                            &in_buffer_cl,
+                            &out_buffer_cl,
                         );
                     },
                     None | Some(_) => return,
@@ -231,15 +275,13 @@ fn main() {
             },
             event::Event::NewEvents(cause) => match cause {
                 event::StartCause::ResumeTimeReached { .. } => (
-                    computed_buffer = compute_game_state(
-                        in_buffer_id,
-                        out_buffer_id,
-                        &stencil_buffer,
-                        &context,
-                        &device,
+                    computed_buffer_flag = compute_game_state(
+                        &in_cycle_kernel,
+                        &out_cycle_kernel,
                         &queue,
-                        worker_dims,
-                        computed_buffer,
+                        computed_buffer_flag,
+                        &in_buffer_cl,
+                        &out_buffer_cl,
                     )
                 ),
                 event::StartCause::Init => (),
@@ -249,36 +291,31 @@ fn main() {
         }
     });
 
+    /// Decides correct buffer cycle based on flag, creates command based on related builder, and updates flag
     pub(crate) fn compute_game_state(
-        in_buffer_id: u32,
-        out_buffer_id: u32,
-        stencil_buffer: &Buffer<i32>,
-        context: &Context,
-        device: &Device,
+        in_kernel: &Kernel,
+        out_kernel: &Kernel,
         queue: &Queue,
-        worker_dims: usize,
-        last_computed: LastComputed
+        last_computed: LastComputed,
+        in_buffer_cl: &Buffer<u8>,
+        out_buffer_cl: &Buffer<u8>,
     ) -> LastComputed {
-        let mut bufffer_1 = 0;
-        let mut bufffer_2 = 0;
-        if last_computed == LastComputed::IN {
-            bufffer_1 = in_buffer_id;
-            bufffer_2 = out_buffer_id;
-        } else {
-            bufffer_1 = out_buffer_id;
-            bufffer_2 = in_buffer_id;
-        }
-        compute::compute::compute_2d_gl(
-            bufffer_1,
-            bufffer_2,
-            &stencil_buffer,
-            &context,
-            &device,
-            &queue,
-            worker_dims,
-        ).unwrap();
 
-        { if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN}}
+        if last_computed == LastComputed::IN {
+            enqueue_kernel_command(
+                create_kernel_command(in_kernel, queue),
+                in_buffer_cl,
+                out_buffer_cl,
+            ).expect("Could not compute game state from kernel");
+        } else {
+            enqueue_kernel_command(
+                create_kernel_command(out_kernel, queue),
+                in_buffer_cl,
+                out_buffer_cl,
+            ).expect("Could not compute game state from kernel");
+        }
+
+        { if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN} }
     }
 
 }
