@@ -1,6 +1,5 @@
 pub mod dtypes {
     use std::fmt::{Debug, Formatter};
-    use std::ops::Index;
     use glium::*;
 
     /// Game-State objects
@@ -10,6 +9,8 @@ pub mod dtypes {
         OUT,
     }
 
+    // TODO: Entire struct should be revised due to new compute structure, possibly unneeded;
+    //       prefer a "Dimension" struct to combine stencil and bitboard helper functions
     struct BitBoard2D<'a> {
         data: Vec<u8>,
         dims: &'a [u8]
@@ -108,6 +109,7 @@ pub mod dtypes {
         }
     }
 
+    // TODO: Review this struct architecture, should be altered to prepare for 3d+
     struct NeighborStencil<'a> {
         positions: Vec<&'a[i8]>,
     }

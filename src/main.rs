@@ -10,14 +10,13 @@ use ocl::*;
 use ocl::Buffer as Buffer;
 
 use compute::compute::*;
-use glium::{Display, GlObject, Surface, uniform, VertexBuffer};
+use glium::{Display, GlObject, Surface, uniform};
 use glium::buffer::{ Buffer as GLBuffer, BufferType, BufferMode };
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
-use glium::texture::buffer_texture::{BufferTexture, BufferTextureRef, BufferTextureType};
-use ocl::builders::{KernelBuilder, KernelCmd};
+use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
-use dtypes::dtypes::{ Vertex, Quad, LastComputed };
+use dtypes::dtypes::{ Quad, LastComputed };
 
 fn main() {
     // Init dimensions
@@ -35,7 +34,7 @@ fn main() {
     }
 
     // Create Glium event loop, window, and builders (including opengl context)
-    let mut events_loop = event_loop::EventLoop::new();
+    let events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
         .with_title("Cellular Automata")
@@ -44,22 +43,21 @@ fn main() {
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
     // Init ocl interop context from active opengl context
-    let mut context = ocl_interop::get_context().expect("Cannot find valid OpenGL context");
+    let context = ocl_interop::get_context().expect("Cannot find valid OpenGL context");
 
     // init ocl objects
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
     let queue = Queue::new(&context, device, None).unwrap();
+    let program = create_program(&context, device, None);
+
     // TODO: Fix work size to never overflow, and always batch at high-efficiency
     let worker_dims = array_vec.len();
-    let program = create_program(&context, device, None);
 
     // TODO: When using these buffers as TextureBuffers inevitably becomes both too slow and too cumbersome, look into BufferType::UniformBuffer
     // Create OpenGL buffers, which will be used for each game-update; then swapped to compute the next stage
-    let mut in_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
-    let mut out_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
-    let in_buffer_id = in_buffer.get_id();
-    let out_buffer_id = out_buffer.get_id();
+    let in_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
+    let out_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
 
     // Create OpenCL buffer containing index offsets for each cell's neighbors
     let stencil: [[i32; 2]; 8] = [
@@ -72,7 +70,7 @@ fn main() {
         [0, -1],
         [0, 1],
     ];
-    let mut stencil_buffer = Buffer::<i32>::builder()
+    let stencil_buffer = Buffer::<i32>::builder()
         .queue(queue.clone())
         .flags(flags::MEM_READ_ONLY)
         .len(stencil.len())
@@ -83,7 +81,7 @@ fn main() {
     let mut stencil_vec: Vec<i32> = Vec::with_capacity(stencil.len());
     for s in stencil.iter() {
         let mut index: i32 = s[0];
-        for (d, z) in dimensions.iter().enumerate() {
+        for d in 0..dimensions.len() {
             if d == 0 {
                 continue;
             }
@@ -94,24 +92,26 @@ fn main() {
         }
         stencil_vec.push(index);
     }
-    unsafe {
-        stencil_buffer.write(&stencil_vec).enq().unwrap();
-    }
+    stencil_buffer.write(&stencil_vec).enq().unwrap();
 
     // TODO: move code above this to other functions or constants
 
     // I've tried every way I can think to make the KernelBuilder cloneable, movable, heap-allocated, or whatever works to generate this outside of main.
     // Annoyingly the library authors have clearly outdated documentation on the process, and haven't responded to other people's issues with this on GitHub.
-    // If I ever figure out this dark magic then I'll write up new docs and initiate a pull request, and move the code below.
+    // If I ever figure out this dark magic then I'll write up new docs, initiate a pull request, and move the code below.
     // Create KernelBuffer to generate kernels from, rather than just reusing existing immutable kernels because OCL doesn't like that other threads "could mutate them"
-    let mut in_buffer_cl = unsafe {
-        Buffer::<u8>::from_gl_buffer(&context, Some(flags::MEM_READ_WRITE), in_buffer_id)
-            .expect("Could not create in CLBuffer")
-    };
-    let mut out_buffer_cl = unsafe {
-        Buffer::<u8>::from_gl_buffer(&context, Some(flags::MEM_READ_WRITE), out_buffer_id)
-            .expect("Could not create in CLBuffer")
-    };
+    let mut in_buffer_cl = Buffer::<u8>::from_gl_buffer(
+        &context,
+        Some(flags::MEM_READ_WRITE),
+        in_buffer.get_id()
+    ).expect("Could not create in CLBuffer");
+
+    let mut out_buffer_cl = Buffer::<u8>::from_gl_buffer(
+        &context,
+        Some(flags::MEM_READ_WRITE),
+        out_buffer.get_id()
+    ).expect("Could not create in CLBuffer");
+
     in_buffer_cl.set_default_queue(queue.clone());
     out_buffer_cl.set_default_queue(queue.clone());
 
@@ -141,8 +141,6 @@ fn main() {
         .build()
         .expect("Could not create out kernel from builder");
 
-
-    // TODO: remove testcode below
     let quad = Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
     let vertex_buffer = quad.get_vertex_buffer(&display);
@@ -191,8 +189,7 @@ fn main() {
     let mut computed_buffer_flag = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
 
-        // todo: change frame logic to not wait the event loop, but only draw at the correct rate
-        //       this will allow key-responsiveness outside of frame draw intervals
+        // todo: force calculations (and related) to occur even if another event is clogging the loop
         let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(250_000);
         *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
 
@@ -254,7 +251,7 @@ fn main() {
 
         match event {
             event::Event::WindowEvent { event, .. } => match event {
-                event::WindowEvent::KeyboardInput { device_id, input, is_synthetic } => match input.virtual_keycode {
+                event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => match input.virtual_keycode {
                     Some(event::VirtualKeyCode::Tab) => {
                         computed_buffer_flag = compute_game_state(
                             &in_cycle_kernel,
@@ -291,32 +288,7 @@ fn main() {
         }
     });
 
-    /// Decides correct buffer cycle based on flag, creates command based on related builder, and updates flag
-    pub(crate) fn compute_game_state(
-        in_kernel: &Kernel,
-        out_kernel: &Kernel,
-        queue: &Queue,
-        last_computed: LastComputed,
-        in_buffer_cl: &Buffer<u8>,
-        out_buffer_cl: &Buffer<u8>,
-    ) -> LastComputed {
 
-        if last_computed == LastComputed::IN {
-            enqueue_kernel_command(
-                create_kernel_command(in_kernel, queue),
-                in_buffer_cl,
-                out_buffer_cl,
-            ).expect("Could not compute game state from kernel");
-        } else {
-            enqueue_kernel_command(
-                create_kernel_command(out_kernel, queue),
-                in_buffer_cl,
-                out_buffer_cl,
-            ).expect("Could not compute game state from kernel");
-        }
-
-        { if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN} }
-    }
 
 }
 
