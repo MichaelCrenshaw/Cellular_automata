@@ -1,112 +1,111 @@
 /// All code directly relating to OpenCL, unless the code must be in main loop for various reasons
-pub mod compute {
-    extern crate ocl;
+extern crate ocl;
 
-    use ocl::{Device, Context, Queue, Program, Buffer, Kernel};
-    use ocl::builders::KernelCmd;
-    use crate::dtypes::dtypes::LastComputed;
+use ocl::{Device, Context, Queue, Program, Buffer, Kernel};
+use ocl::builders::KernelCmd;
+use crate::dtypes::LastComputed;
 
-    // Base compute kernel, INFO: currently for 2d calculations using 1d index wrapping
-    pub static DEFAULT_KERNEL: &'static str = r#"
-            __kernel void compute(
-                __global uchar* in_buffer,
-                __global uchar* out_buffer,
-                __global int* stencil_buffer,
-                uint stencil_size,
-                int array_size)
-            {
-                int neighbors = 0;
+// Base compute kernel, INFO: currently for 2d calculations using 1d index wrapping
+pub static DEFAULT_KERNEL: &'static str = r#"
+        __kernel void compute(
+            __global uchar* in_buffer,
+            __global uchar* out_buffer,
+            __global long* stencil_buffer,
+            uint stencil_size,
+            int array_size)
+        {
+            int neighbors = 0;
 
-                for (int i = 0; i < stencil_size; i++) {
-                    int index = stencil_buffer[i] + get_global_id(0);
-                    if (index >= 0 && index <= array_size) {
-                        neighbors += in_buffer[index];
-                    }
+            for (int i = 0; i < stencil_size; i++) {
+                int index = stencil_buffer[i] + get_global_id(0);
+                if (index >= 0 && index <= array_size) {
+                    neighbors += in_buffer[index];
                 }
+            }
 
-                // out_buffer[get_global_id(0)] = neighbors;
-                // return;
+            // out_buffer[get_global_id(0)] = neighbors;
+            // return;
 
-                if (neighbors == 2) {
-                    out_buffer[get_global_id(0)] = in_buffer[get_global_id(0)];
-                    return;
-                }
+            if (neighbors == 2) {
+                out_buffer[get_global_id(0)] = in_buffer[get_global_id(0)];
+                return;
+            }
 
-                if (neighbors == 3) {
-                    out_buffer[get_global_id(0)] = 1;
-                    return;
-                }
+            if (neighbors == 3) {
+                out_buffer[get_global_id(0)] = 1;
+                return;
+            }
 
-                out_buffer[get_global_id(0)] = 0;
-            }"#;
+            out_buffer[get_global_id(0)] = 0;
+        }"#;
 
-    /// Create OCL Program with provided kernel function, or default
-    pub fn create_program(context: &Context, device: Device, kernel_func: Option<&str>) -> Program {
-        Program::builder()
-            .devices(device)
-            .src(if let Some(func) = kernel_func { func } else { DEFAULT_KERNEL })
-            .build(context).expect("Could not create program")
-    }
-
-    /// Generate enqueue-able kernel command from kernel defaults and queue
-    pub fn create_kernel_command<'a> (
-        kernel: &'a Kernel,
-        queue: &'a Queue,
-    ) -> KernelCmd<'a> {
-        kernel.cmd()
-            .queue(queue)
-            .global_work_offset(kernel.default_global_work_offset())
-            .global_work_size(kernel.default_global_work_size())
-            .local_work_size(kernel.default_local_work_size())
-    }
-
-    /// Computes next step of automata from one buffer into another buffer, does not return values or move any memory
-    pub fn enqueue_kernel_command(
-        kernel_command: KernelCmd,
-        in_buffer: &Buffer<u8>,
-        out_buffer: &Buffer<u8>,
-    ) -> ocl::Result<()> {
-
-        // Get OpenGL buffers by id and acquire them for use by OpenCL
-        in_buffer.cmd().gl_acquire().enq()?;
-        out_buffer.cmd().gl_acquire().enq()?;
-
-        // Run kernel on GPU with default local work size and global work offset
-        unsafe {
-            kernel_command.enq()?;
-        }
-
-        // Release buffers for OpenGL use
-        in_buffer.cmd().gl_release().enq()?;
-        out_buffer.cmd().gl_release().enq()?;
-
-        Ok(())
-    }
-
-    /// Decides correct buffer cycle based on flag, creates command based on related builder, and updates flag
-    pub(crate) fn compute_game_state(
-        in_kernel: &Kernel,
-        out_kernel: &Kernel,
-        queue: &Queue,
-        last_computed: LastComputed,
-        in_buffer_cl: &Buffer<u8>,
-        out_buffer_cl: &Buffer<u8>,
-    ) -> LastComputed {
-
-        if last_computed == LastComputed::IN {
-            enqueue_kernel_command(
-                create_kernel_command(in_kernel, queue),
-                in_buffer_cl,
-                out_buffer_cl,
-            ).expect("Could not compute game state from kernel");
-        } else {
-            enqueue_kernel_command(
-                create_kernel_command(out_kernel, queue),
-                in_buffer_cl,
-                out_buffer_cl,
-            ).expect("Could not compute game state from kernel");
-        }
-
-        if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN}
-    }
+/// Create OCL Program with provided kernel function, or default
+pub fn create_program(context: &Context, device: Device, kernel_func: Option<&str>) -> Program {
+    Program::builder()
+        .devices(device)
+        .src(if let Some(func) = kernel_func { func } else { DEFAULT_KERNEL })
+        .build(context).expect("Could not create program")
 }
+
+/// Generate enqueue-able kernel command from kernel defaults and queue
+pub fn create_kernel_command<'a> (
+    kernel: &'a Kernel,
+    queue: &'a Queue,
+) -> KernelCmd<'a> {
+    kernel.cmd()
+        .queue(queue)
+        .global_work_offset(kernel.default_global_work_offset())
+        .global_work_size(kernel.default_global_work_size())
+        .local_work_size(kernel.default_local_work_size())
+}
+
+/// Computes next step of automata from one buffer into another buffer, does not return values or move any memory
+pub fn enqueue_kernel_command(
+    kernel_command: KernelCmd,
+    in_buffer: &Buffer<u8>,
+    out_buffer: &Buffer<u8>,
+) -> ocl::Result<()> {
+
+    // Get OpenGL buffers by id and acquire them for use by OpenCL
+    in_buffer.cmd().gl_acquire().enq()?;
+    out_buffer.cmd().gl_acquire().enq()?;
+
+    // Run kernel on GPU with default local work size and global work offset
+    unsafe {
+        kernel_command.enq()?;
+    }
+
+    // Release buffers for OpenGL use
+    in_buffer.cmd().gl_release().enq()?;
+    out_buffer.cmd().gl_release().enq()?;
+
+    Ok(())
+}
+
+/// Decides correct buffer cycle based on flag, creates command based on related builder, and updates flag
+pub(crate) fn compute_game_state(
+    in_kernel: &Kernel,
+    out_kernel: &Kernel,
+    queue: &Queue,
+    last_computed: LastComputed,
+    in_buffer_cl: &Buffer<u8>,
+    out_buffer_cl: &Buffer<u8>,
+) -> LastComputed {
+
+    if last_computed == LastComputed::IN {
+        enqueue_kernel_command(
+            create_kernel_command(in_kernel, queue),
+            in_buffer_cl,
+            out_buffer_cl,
+        ).expect("Could not compute game state from kernel");
+    } else {
+        enqueue_kernel_command(
+            create_kernel_command(out_kernel, queue),
+            in_buffer_cl,
+            out_buffer_cl,
+        ).expect("Could not compute game state from kernel");
+    }
+
+    if last_computed == LastComputed::IN {LastComputed::OUT} else {LastComputed::IN}
+}
+

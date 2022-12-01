@@ -3,25 +3,23 @@ mod dtypes;
 
 extern crate ocl;
 extern crate ocl_interop;
-extern crate core;
 extern crate glium;
 
 use ocl::*;
 use ocl::Buffer as Buffer;
 
-use compute::compute::*;
+use compute::*;
+use dtypes::*;
 use glium::{Display, GlObject, Surface, uniform};
-use glium::buffer::{ Buffer as GLBuffer, BufferType, BufferMode };
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
-use dtypes::dtypes::{ Quad, LastComputed };
 
 fn main() {
     // Init dimensions
-    let dimensions: [u32; 2] = [100, 100];
-    let array_len = dimensions[0] * dimensions[1];
+    let dimensions = GridDimensions::new(&[100, 100]);
+    let array_len = dimensions.dimension_size();
 
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
@@ -56,45 +54,12 @@ fn main() {
 
     // TODO: When using these buffers as TextureBuffers inevitably becomes both too slow and too cumbersome, look into BufferType::UniformBuffer
     // Create OpenGL buffers, which will be used for each game-update; then swapped to compute the next stage
-    let in_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
-    let out_buffer = GLBuffer::<[u8]>::new(&display, &array_vec[..], BufferType::ArrayBuffer, BufferMode::Dynamic).unwrap();
+    let buffers = dimensions.generate_grid_buffers(&display, Some(array_vec)).unwrap();
+    let in_buffer = buffers.0;
+    let out_buffer = buffers.1;
 
     // Create OpenCL buffer containing index offsets for each cell's neighbors
-    let stencil: [[i32; 2]; 8] = [
-        [-1, -1],
-        [-1, 0],
-        [-1, 1],
-        [1, -1],
-        [1, 0],
-        [1, 1],
-        [0, -1],
-        [0, 1],
-    ];
-    let stencil_buffer = Buffer::<i32>::builder()
-        .queue(queue.clone())
-        .flags(flags::MEM_READ_ONLY)
-        .len(stencil.len())
-        .fill_val(0)
-        .build().unwrap();
-
-    // Fill stencil_buffer with stencil offsets
-    let mut stencil_vec: Vec<i32> = Vec::with_capacity(stencil.len());
-    for s in stencil.iter() {
-        let mut index: i32 = s[0];
-        for d in 0..dimensions.len() {
-            if d == 0 {
-                continue;
-            }
-
-            let mut offset = 1i32;
-            for x in dimensions[0..d].into_iter() { offset *= *x as i32 }
-            index += s[d] * offset;
-        }
-        stencil_vec.push(index);
-    }
-    stencil_buffer.write(&stencil_vec).enq().unwrap();
-
-    // TODO: move code above this to other functions or constants
+    let stencil_buffer = dimensions.generate_stencil_buffer(&queue);
 
     // I've tried every way I can think to make the KernelBuilder cloneable, movable, heap-allocated, or whatever works to generate this outside of main.
     // Annoyingly the library authors have clearly outdated documentation on the process, and haven't responded to other people's issues with this on GitHub.
