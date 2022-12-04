@@ -5,6 +5,7 @@ extern crate ocl;
 extern crate ocl_interop;
 extern crate glium;
 
+use std::time::Instant;
 use ocl::*;
 use ocl::Buffer as Buffer;
 
@@ -13,6 +14,7 @@ use dtypes::*;
 use glium::{Display, GlObject, Surface, uniform};
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
+use glium::glutin::event_loop::ControlFlow;
 use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
 
@@ -121,9 +123,13 @@ fn main() {
 
     let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
 
+    // Loop logic / settings
+    let target_fps = 165;
+
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
+        let start_time = Instant::now();
 
         match event {
             event::Event::WindowEvent { event, .. } => match event {
@@ -139,10 +145,10 @@ fn main() {
                             &out_buffer_cl,
                         );
                     },
-                    None | Some(_) => return,
+                    _ => return,
                 }
                 event::WindowEvent::CloseRequested => {
-                    *control_flow = event_loop::ControlFlow::Exit;
+                    *control_flow = ControlFlow::Exit;
                     return;
                 },
                 _ => return,
@@ -164,10 +170,6 @@ fn main() {
             },
             _ => return
         }
-
-        // todo: Change framerate to be dynamic
-        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(10_000_000);
-        *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
 
         // If refresh interval interrupts the program, redraw the frame and step the game once
         let mut target = display.draw();
@@ -229,6 +231,16 @@ fn main() {
             &params
         ).unwrap();
         target.finish().unwrap();
+
+        // Wait until next frame redraw should occur
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match 1000 / target_fps >= elapsed_time {
+            true => 1000 / target_fps - elapsed_time,
+            false => 0
+        };
+
+        let next_interval = start_time + std::time::Duration::from_millis(wait_milliseconds);
+        *control_flow = ControlFlow::WaitUntil(next_interval);
     });
 
 
