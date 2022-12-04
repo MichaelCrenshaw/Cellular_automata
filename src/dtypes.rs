@@ -88,6 +88,16 @@ impl<'a> GridDimensions<'a> {
         size
     }
 
+    // TODO: Uncomment function and add test cases when bitwise logic is added
+    // /// Get size of grid in bytes required to store the data
+    // pub fn dimension_byte_size(&self) -> u64 {
+    //     let mut size: u64 = 1;
+    //     for dim in self.dimensions {
+    //         size *= *dim as u64
+    //     }
+    //     (size as f64 / 8.0).ceil() as u64
+    // }
+
     /// Generate an OpenCL buffer with neighbor offset stencil as data
     pub fn generate_stencil_buffer(&self, queue: &Queue) -> ocl::Buffer<i64> {
         let stencil = self.cartesian_neighbor_offsets();
@@ -134,14 +144,8 @@ impl<'a> GridDimensions<'a> {
         Ok((in_buffer, out_buffer))
     }
 
-    // TODO: Uncomment function and add test cases when bitwise logic is added
-    // /// Get size of grid in bytes required to store the data
-    // pub fn dimension_byte_size(&self) -> u64 {
-    //     let mut size: u64 = 1;
-    //     for dim in self.dimensions {
-    //         size *= *dim as u64
-    //     }
-    //     (size as f64 / 8.0).ceil() as u64
+    // pub fn generate_program_string(&self) -> String {
+    //
     // }
 }
 
@@ -152,6 +156,11 @@ pub struct Vertex {
     pub(crate) tex_coords: [f32; 3],
 }
 implement_vertex!(Vertex, position, tex_coords);
+
+pub trait Bufferable {
+    fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex>;
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16>;
+}
 
 #[derive(Copy, Clone)]
 pub struct Quad {
@@ -184,12 +193,14 @@ impl Quad {
             ],
         }
     }
+}
 
-    pub fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+impl Bufferable for Quad {
+    fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         VertexBuffer::new(display, &self.vertices).unwrap()
     }
 
-    pub fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
         IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
     }
 }
@@ -242,12 +253,14 @@ impl Cube {
             ],
         }
     }
+}
 
-    pub fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+impl Bufferable for Cube {
+    fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         VertexBuffer::new(display, &self.vertices).unwrap()
     }
 
-    pub fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
         IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
     }
 }

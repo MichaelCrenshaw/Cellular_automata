@@ -108,10 +108,10 @@ fn main() {
         .build()
         .expect("Could not create out kernel from builder");
 
-    let quad = Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, 1.0f32]);
+    let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, 1.0f32]);
 
-    let vertex_buffer = quad.get_vertex_buffer(&display);
-    let indices = quad.get_index_buffer(&display);
+    let vertex_buffer = board.get_vertex_buffer(&display);
+    let indices = board.get_index_buffer(&display);
 
     // BufferTexture initialization
     let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
@@ -119,6 +119,7 @@ fn main() {
 
     // Init Glium shaders and program
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
+    // TODO: Add a shader (probably tesselation, maybe geometry) to frontload buffer indexing to run once per index instead of once per pixel
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
     let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
 
@@ -183,7 +184,7 @@ fn main() {
             let (width, height) = target.get_dimensions();
             let aspect_ratio = height as f32 / width as f32;
 
-            let fov: f32 = 3.141592 / 3.0;
+            let fov: f32 = std::f32::consts::PI / 3.0;
             let zfar = 1024.0;
             let znear = 0.1;
 
