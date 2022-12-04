@@ -11,7 +11,7 @@ use ocl::Buffer as Buffer;
 
 use compute::*;
 use dtypes::*;
-use glium::{Display, GlObject, Surface, uniform};
+use glium::{Display, GlObject, glutin, Surface, uniform};
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::glutin::event_loop::ControlFlow;
@@ -45,7 +45,7 @@ fn main() {
     // Init ocl interop context from active opengl context
     let context = ocl_interop::get_context().expect("Cannot find valid OpenGL context");
 
-    // init ocl objects
+    // Init ocl objects
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
     let queue = Queue::new(&context, device, None).unwrap();
@@ -117,22 +117,25 @@ fn main() {
     let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
     let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
+    // Init Glium shaders and program
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
-
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
-
     let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
 
     // Loop logic / settings
-    let target_fps = 165;
+    let target_fps = 60;
 
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
         let start_time = Instant::now();
+        let mut no_wait = false;
 
         match event {
             event::Event::WindowEvent { event, .. } => match event {
+                event::WindowEvent::Resized(_) => {
+                    no_wait = true;
+                },
                 event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => match input.virtual_keycode {
                     // If key is tab, calculate game step
                     Some(event::VirtualKeyCode::Tab) => {
@@ -232,6 +235,9 @@ fn main() {
         ).unwrap();
         target.finish().unwrap();
 
+        // Don't wait to redraw if event flags nowait
+        if no_wait { return }
+
         // Wait until next frame redraw should occur
         let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
         let wait_milliseconds = match 1000 / target_fps >= elapsed_time {
@@ -242,8 +248,5 @@ fn main() {
         let next_interval = start_time + std::time::Duration::from_millis(wait_milliseconds);
         *control_flow = ControlFlow::WaitUntil(next_interval);
     });
-
-
-
 }
 

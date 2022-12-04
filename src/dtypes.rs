@@ -227,7 +227,7 @@ impl Cube {
         Cube {
             vertices,
             indices: [
-                0, 1, 3,
+                0, 1, 2,
                 1, 2, 3,
                 2, 3, 6,
                 3, 6, 7,
@@ -241,6 +241,14 @@ impl Cube {
                 6, 7, 4,
             ],
         }
+    }
+
+    pub fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+        VertexBuffer::new(display, &self.vertices).unwrap()
+    }
+
+    pub fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+        IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
     }
 }
 
