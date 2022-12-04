@@ -203,14 +203,14 @@ impl Cube {
     pub fn new(height: f32, width: f32, depth: f32, center: &[f32; 3]) -> Self  {
 
         let positions = [
-            [center[0] - width / 2.0, center[1] - height / 2.0, center[1] - depth / 2.0],
-            [center[0] + width / 2.0, center[1] - height / 2.0, center[1] - depth / 2.0],
-            [center[0] - width / 2.0, center[1] + height / 2.0, center[1] - depth / 2.0],
-            [center[0] + width / 2.0, center[1] + height / 2.0, center[1] - depth / 2.0],
-            [center[0] - width / 2.0, center[1] - height / 2.0, center[1] + depth / 2.0],
-            [center[0] + width / 2.0, center[1] - height / 2.0, center[1] + depth / 2.0],
-            [center[0] - width / 2.0, center[1] + height / 2.0, center[1] + depth / 2.0],
-            [center[0] + width / 2.0, center[1] + height / 2.0, center[1] + depth / 2.0],
+            [center[0] - width / 2.0, center[1] - height / 2.0, center[2] - depth / 2.0],
+            [center[0] + width / 2.0, center[1] - height / 2.0, center[2] - depth / 2.0],
+            [center[0] - width / 2.0, center[1] + height / 2.0, center[2] - depth / 2.0],
+            [center[0] + width / 2.0, center[1] + height / 2.0, center[2] - depth / 2.0],
+            [center[0] - width / 2.0, center[1] - height / 2.0, center[2] + depth / 2.0],
+            [center[0] + width / 2.0, center[1] - height / 2.0, center[2] + depth / 2.0],
+            [center[0] - width / 2.0, center[1] + height / 2.0, center[2] + depth / 2.0],
+            [center[0] + width / 2.0, center[1] + height / 2.0, center[2] + depth / 2.0],
         ];
 
         let vertices = [

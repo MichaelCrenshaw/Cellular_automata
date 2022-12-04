@@ -108,7 +108,7 @@ fn main() {
         .build()
         .expect("Could not create out kernel from builder");
 
-    let quad = Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
+    let quad = Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, 1.0f32]);
 
     let vertex_buffer = quad.get_vertex_buffer(&display);
     let indices = quad.get_index_buffer(&display);
