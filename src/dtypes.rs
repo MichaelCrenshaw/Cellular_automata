@@ -190,9 +190,13 @@ impl Quad {
     }
 
     pub fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &self.indices).unwrap()
+        IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
     }
 }
+
+// pub struct Cube {
+//
+// }
 
 #[cfg(test)]
 pub mod tests {

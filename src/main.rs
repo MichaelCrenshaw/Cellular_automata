@@ -91,7 +91,7 @@ fn main() {
         .arg(stencil_buffer.len() as u32)
         .arg(in_buffer_cl.len() as u32)
         .build()
-        .expect("Could not create out kernel from builder");
+        .expect("Could not create in kernel from builder");
 
     let out_cycle_kernel = Kernel::builder()
         .program(&program)
