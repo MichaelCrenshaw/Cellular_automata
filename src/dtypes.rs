@@ -149,14 +149,14 @@ impl<'a> GridDimensions<'a> {
 #[derive(Copy, Clone)]
 pub struct Vertex {
     pub(crate) position: [f32; 3],
-    pub(crate) tex_coords: [f32; 2],
+    pub(crate) tex_coords: [f32; 3],
 }
 implement_vertex!(Vertex, position, tex_coords);
 
 #[derive(Copy, Clone)]
 pub struct Quad {
     vertices: [Vertex; 4],
-    indices: [u16;6],
+    indices: [u16; 6],
 }
 
 impl Quad {
@@ -170,10 +170,10 @@ impl Quad {
         ];
 
         let vertices = [
-            Vertex { position: positions[0], tex_coords: [0.0, 0.0] },
-            Vertex { position: positions[1], tex_coords: [1.0, 0.0] },
-            Vertex { position: positions[2], tex_coords: [0.0, 1.0] },
-            Vertex { position: positions[3], tex_coords: [1.0, 1.0] },
+            Vertex { position: positions[0], tex_coords: [0.0, 0.0, 0.0] },
+            Vertex { position: positions[1], tex_coords: [1.0, 0.0, 0.0] },
+            Vertex { position: positions[2], tex_coords: [0.0, 1.0, 0.0] },
+            Vertex { position: positions[3], tex_coords: [1.0, 1.0, 0.0] },
         ];
 
         Quad {
@@ -194,9 +194,55 @@ impl Quad {
     }
 }
 
-// pub struct Cube {
-//
-// }
+pub struct Cube {
+    vertices: [Vertex; 8],
+    indices: [u16; 36],
+}
+
+impl Cube {
+    pub fn new(height: f32, width: f32, depth: f32, center: &[f32; 3]) -> Self  {
+
+        let positions = [
+            [center[0] - width / 2.0, center[1] - height / 2.0, center[1] - depth / 2.0],
+            [center[0] + width / 2.0, center[1] - height / 2.0, center[1] - depth / 2.0],
+            [center[0] - width / 2.0, center[1] + height / 2.0, center[1] - depth / 2.0],
+            [center[0] + width / 2.0, center[1] + height / 2.0, center[1] - depth / 2.0],
+            [center[0] - width / 2.0, center[1] - height / 2.0, center[1] + depth / 2.0],
+            [center[0] + width / 2.0, center[1] - height / 2.0, center[1] + depth / 2.0],
+            [center[0] - width / 2.0, center[1] + height / 2.0, center[1] + depth / 2.0],
+            [center[0] + width / 2.0, center[1] + height / 2.0, center[1] + depth / 2.0],
+        ];
+
+        let vertices = [
+            Vertex { position: positions[0], tex_coords: [0.0, 0.0, 0.0] },
+            Vertex { position: positions[1], tex_coords: [1.0, 0.0, 0.0] },
+            Vertex { position: positions[2], tex_coords: [0.0, 1.0, 0.0] },
+            Vertex { position: positions[3], tex_coords: [1.0, 1.0, 0.0] },
+            Vertex { position: positions[4], tex_coords: [0.0, 0.0, 1.0] },
+            Vertex { position: positions[5], tex_coords: [1.0, 0.0, 1.0] },
+            Vertex { position: positions[6], tex_coords: [0.0, 1.0, 1.0] },
+            Vertex { position: positions[7], tex_coords: [1.0, 1.0, 1.0] },
+        ];
+
+        Cube {
+            vertices,
+            indices: [
+                0, 1, 3,
+                1, 2, 3,
+                2, 3, 6,
+                3, 6, 7,
+                7, 3, 4,
+                4, 3, 0,
+                4, 0, 1,
+                1, 5, 4,
+                4, 5, 6,
+                5, 1, 6,
+                6, 2, 1,
+                6, 7, 4,
+            ],
+        }
+    }
+}
 
 #[cfg(test)]
 pub mod tests {
