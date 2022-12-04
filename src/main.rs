@@ -115,108 +115,20 @@ fn main() {
     let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
     let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
-    let triangle_shader_src = r#"
-        #version 140
+    let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
 
-        in vec3 position;
-        in vec2 tex_coords;
-        out vec2 v_tex_coords;
-
-        uniform mat4 perspective;
-        uniform mat4 transform_matrix;
-
-        void main() {
-            v_tex_coords = tex_coords;
-            gl_Position = perspective * transform_matrix * vec4(position, 1.0);
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 140
-
-        in vec2 v_tex_coords;
-        out vec4 color;
-
-        uniform usamplerBuffer tex;
-
-        void main() {
-            int buffer_index = int(floor(v_tex_coords[0] * 100) + floor(v_tex_coords[1] * 100) * 100 );
-            bool alive = false;
-            if (texelFetch(tex, buffer_index)[0] > 0.5) alive = true;
-            color = alive ? vec4(1.0, 1.0, 1.0, 1.0) : vec4(0.1, 0.1, 0.1, 1.0);
-        }
-    "#;
+    let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
 
     let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
-
 
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
     events_loop.run(move |event, _, control_flow| {
 
-        // todo: force calculations (and related) to occur even if another event is clogging the loop
-        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(250_000);
-        *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
-
-        let mut target = display.draw();
-        target.clear_color_and_depth((0.1, 0.1, 0.1, 1.0), 1.0);
-
-        let perspective = {
-            let (width, height) = target.get_dimensions();
-            let aspect_ratio = height as f32 / width as f32;
-
-            let fov: f32 = 3.141592 / 3.0;
-            let zfar = 1024.0;
-            let znear = 0.1;
-
-            let f = 1.0 / (fov / 2.0).tan();
-
-            [
-                [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
-                [         0.0         ,     f ,              0.0              ,   0.0],
-                [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
-                [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
-            ]
-        };
-
-        let params = glium::DrawParameters {
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                .. Default::default()
-            },
-            .. Default::default()
-        };
-
-        let texture_buffer = {
-            if LastComputed::IN == computed_buffer_flag {
-                &texture_in_cycle
-            } else {
-                &texture_out_cycle
-            }
-        };
-
-        target.draw(
-            &vertex_buffer,
-            &indices,
-            &program,
-            &uniform! {
-                transform_matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [ 0.0 , 0.0, 2.0, 1.0f32]
-                ],
-                tex: texture_buffer,
-                perspective: perspective,
-            },
-            &params
-        ).unwrap();
-        target.finish().unwrap();
-
         match event {
             event::Event::WindowEvent { event, .. } => match event {
                 event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => match input.virtual_keycode {
+                    // If key is tab, calculate game step
                     Some(event::VirtualKeyCode::Tab) => {
                         computed_buffer_flag = compute_game_state(
                             &in_cycle_kernel,
@@ -236,6 +148,7 @@ fn main() {
                 _ => return,
             },
             event::Event::NewEvents(cause) => match cause {
+                // If event is the loop's refresh interval expiring, calculate game step
                 event::StartCause::ResumeTimeReached { .. } => (
                     computed_buffer_flag = compute_game_state(
                         &in_cycle_kernel,
@@ -251,6 +164,71 @@ fn main() {
             },
             _ => return
         }
+
+        // todo: Change framerate to be dynamic
+        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(10_000_000);
+        *control_flow = event_loop::ControlFlow::WaitUntil(next_frame_time);
+
+        // If refresh interval interrupts the program, redraw the frame and step the game once
+        let mut target = display.draw();
+        target.clear_color_and_depth((0.1, 0.1, 0.1, 1.0), 1.0);
+
+        // Magic matrix that handles incredibly complex perspective transformations for me
+        let perspective = {
+            let (width, height) = target.get_dimensions();
+            let aspect_ratio = height as f32 / width as f32;
+
+            let fov: f32 = 3.141592 / 3.0;
+            let zfar = 1024.0;
+            let znear = 0.1;
+
+            let f = 1.0 / (fov / 2.0).tan();
+
+            [
+                [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
+                [         0.0         ,     f ,              0.0              ,   0.0],
+                [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
+                [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+            ]
+        };
+
+        // Basic depth parameters
+        let params = glium::DrawParameters {
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                .. Default::default()
+            },
+            .. Default::default()
+        };
+
+        // Use last computed buffer as input for fragment shader
+        let texture_buffer = {
+            if LastComputed::IN == computed_buffer_flag {
+                &texture_in_cycle
+            } else {
+                &texture_out_cycle
+            }
+        };
+
+        // Draw new frame with uniforms
+        target.draw(
+            &vertex_buffer,
+            &indices,
+            &program,
+            &uniform! {
+                transform_matrix: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [ 0.0 , 0.0, 2.0, 1.0f32]
+                ],
+                tex: texture_buffer,
+                perspective: perspective,
+            },
+            &params
+        ).unwrap();
+        target.finish().unwrap();
     });
 
 
