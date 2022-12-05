@@ -240,7 +240,7 @@ impl<'a> GridDimensions<'a> {
                 survive.into_iter()
                    .map(|x| format!("(neighbors == {})", x))
                    .collect::<Vec<String>>()
-                   .join(" && "),
+                   .join(" || "),
             );
         }
 
@@ -264,7 +264,7 @@ impl<'a> GridDimensions<'a> {
                 spawn.into_iter()
                    .map(|x| format!("(neighbors == {})", x))
                    .collect::<Vec<String>>()
-                   .join(" && "),
+                   .join(" || "),
             );
         }
 

@@ -23,6 +23,8 @@ fn main() {
     let dimensions = GridDimensions::new(&[100, 100]);
     let array_len = dimensions.dimension_size();
 
+    // Game settings
+    let target_fps = 60;
     let survive_rules = vec![2];
     let spawn_rules = vec![3];
 
@@ -125,9 +127,6 @@ fn main() {
     // TODO: Add a shader (probably tesselation, maybe geometry) to frontload buffer indexing to run once per index instead of once per pixel
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
     let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
-
-    // Loop logic / settings
-    let target_fps = 60;
 
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
