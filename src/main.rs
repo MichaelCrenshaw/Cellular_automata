@@ -29,7 +29,7 @@ fn main() {
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
-        if index % 100 == 0 || index % 11 == 3 {
+        if index % 3 == 0 || index % 5 == 3 {
             array_vec.push(1);
         } else {
             array_vec.push(0);
@@ -40,8 +40,7 @@ fn main() {
     let events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
-        .with_title("Cellular Automata")
-        .with_transparent(true);
+        .with_title("Cellular Automata");
     let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
@@ -53,11 +52,14 @@ fn main() {
         survive_rules,
         spawn_rules
     );
-
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
-    let queue = Queue::new(&context, device, None).unwrap();
-    let program = create_program(&context, device, Some(kernel_source));
+    let queue = Queue::new(&context, device, Some(CommandQueueProperties::new().out_of_order().profiling())).unwrap();
+    let program = create_program(
+        &context,
+        device,
+        Some(kernel_source),
+        Some("-cl-no-signed-zeros -cl-fast-relaxed-math -cl-mad-enable -cl-strict-aliasing"));
 
     // TODO: Fix work size to never overflow, and always batch at high-efficiency
     let worker_dims = array_vec.len();

@@ -9,9 +9,15 @@ use crate::dtypes::LastComputed;
 pub static DEFAULT_KERNEL: &'static str = include_str!("./shaders/compute.cl");
 
 /// Create OCL Program with provided kernel function, or default
-pub fn create_program(context: &Context, device: Device, kernel_func: Option<&str>) -> Program {
+pub fn create_program(
+    context: &Context,
+    device: Device,
+    kernel_func: Option<&str>,
+    compiler_options:Option<&str>
+) -> Program {
     Program::builder()
         .devices(device)
+        .cmplr_opt(if let Some(opts) = compiler_options { opts } else { "" })
         .src(if let Some(func) = kernel_func { func } else { DEFAULT_KERNEL })
         .build(context).expect("Could not create program")
 }

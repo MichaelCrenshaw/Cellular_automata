@@ -1,7 +1,6 @@
 use glium::*;
 use glium::backend::Facade;
 use glium::buffer::Buffer as GLBuffer;
-use ocl::Queue;
 
 /// Game-State objects
 #[derive(PartialEq, Copy, Clone)]
