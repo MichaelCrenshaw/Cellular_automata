@@ -11,7 +11,7 @@ use ocl::Buffer as Buffer;
 
 use compute::*;
 use dtypes::*;
-use glium::{Display, GlObject, glutin, Surface, uniform};
+use glium::{Display, GlObject, Surface, uniform};
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::glutin::event_loop::ControlFlow;
@@ -22,6 +22,9 @@ fn main() {
     // Init dimensions
     let dimensions = GridDimensions::new(&[100, 100]);
     let array_len = dimensions.dimension_size();
+
+    let survive_rules = vec![2];
+    let spawn_rules = vec![3];
 
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
@@ -46,10 +49,15 @@ fn main() {
     let context = ocl_interop::get_context().expect("Cannot find valid OpenGL context");
 
     // Init ocl objects
+    let kernel_source = &dimensions.generate_program_string(
+        survive_rules,
+        spawn_rules
+    );
+
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
     let queue = Queue::new(&context, device, None).unwrap();
-    let program = create_program(&context, device, None);
+    let program = create_program(&context, device, Some(kernel_source));
 
     // TODO: Fix work size to never overflow, and always batch at high-efficiency
     let worker_dims = array_vec.len();
@@ -59,9 +67,6 @@ fn main() {
     let buffers = dimensions.generate_grid_buffers(&display, Some(array_vec)).unwrap();
     let in_buffer = buffers.0;
     let out_buffer = buffers.1;
-
-    // Create OpenCL buffer containing index offsets for each cell's neighbors
-    let stencil_buffer = dimensions.generate_stencil_buffer(&queue);
 
     // I've tried every way I can think to make the KernelBuilder cloneable, movable, heap-allocated, or whatever works to generate this outside of main.
     // Annoyingly the library authors have clearly outdated documentation on the process, and haven't responded to other people's issues with this on GitHub.
@@ -89,9 +94,6 @@ fn main() {
         .global_work_size(worker_dims)
         .arg(&in_buffer_cl)
         .arg(&out_buffer_cl)
-        .arg(&stencil_buffer)
-        .arg(stencil_buffer.len() as u32)
-        .arg(in_buffer_cl.len() as u32)
         .build()
         .expect("Could not create in kernel from builder");
 
@@ -102,13 +104,11 @@ fn main() {
         .global_work_size(worker_dims)
         .arg(&out_buffer_cl)
         .arg(&in_buffer_cl)
-        .arg(&stencil_buffer)
-        .arg(stencil_buffer.len() as u32)
-        .arg(out_buffer_cl.len() as u32)
         .build()
         .expect("Could not create out kernel from builder");
 
     let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, 1.0f32]);
+    // let board: &dyn Bufferable = &Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
     let vertex_buffer = board.get_vertex_buffer(&display);
     let indices = board.get_index_buffer(&display);
@@ -117,6 +117,7 @@ fn main() {
     let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
     let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
+    // TODO: Make GL shaders dimension-agnostic
     // Init Glium shaders and program
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
     // TODO: Add a shader (probably tesselation, maybe geometry) to frontload buffer indexing to run once per index instead of once per pixel
@@ -179,6 +180,7 @@ fn main() {
         let mut target = display.draw();
         target.clear_color_and_depth((0.1, 0.1, 0.1, 1.0), 1.0);
 
+        // TODO: Add camera controls
         // Magic matrix that handles incredibly complex perspective transformations for me
         let perspective = {
             let (width, height) = target.get_dimensions();

@@ -1,17 +1,45 @@
 __kernel void compute(
     __global uchar* in_buffer,
-    __global uchar* out_buffer,
-    __global long* stencil_buffer,
-    uint stencil_size,
-    int array_size)
-{
-    int neighbors = 0;
+    __global uchar* out_buffer
+) {
+    uint neighbors = 0;
+    ulong index = get_global_id(0);
 
-    for (int i = 0; i < stencil_size; i++) {
-        int index = stencil_buffer[i] + get_global_id(0);
-        if (index >= 0 && index <= array_size) {
-            neighbors += in_buffer[index];
-        }
+    ulong dim2 = index / 100;
+    index -= dim2 * 100;
+
+    ulong dim1 = index;
+
+    if ((dim1 != 99) && (dim2 != 99) && (101 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[101 + get_global_id(0)];
+    }
+
+    if ((dim1 != 99) && (1 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[1 + get_global_id(0)];
+    }
+
+    if ((dim1 != 99) && (dim2 != 0) && (-99 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[-99 + get_global_id(0)];
+    }
+
+    if ((dim2 != 99) && (100 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[100 + get_global_id(0)];
+    }
+
+    if ((dim2 != 0) && (-100 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[-100 + get_global_id(0)];
+    }
+
+    if ((dim1 != 0) && (dim2 != 99) && (99 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[99 + get_global_id(0)];
+    }
+
+    if ((dim1 != 0) && (-1 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[-1 + get_global_id(0)];
+    }
+
+    if ((dim1 != 0) && (dim2 != 0) && (-101 + get_global_id(0) >= 0)) {
+        neighbors += in_buffer[-101 + get_global_id(0)];
     }
 
     if (neighbors == 2) {

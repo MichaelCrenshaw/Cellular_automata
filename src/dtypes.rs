@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use glium::*;
 use glium::backend::Facade;
 use glium::buffer::Buffer as GLBuffer;
@@ -98,22 +97,6 @@ impl<'a> GridDimensions<'a> {
     //     (size as f64 / 8.0).ceil() as u64
     // }
 
-    /// Generate an OpenCL buffer with neighbor offset stencil as data
-    pub fn generate_stencil_buffer(&self, queue: &Queue) -> ocl::Buffer<i64> {
-        let stencil = self.cartesian_neighbor_offsets();
-
-        let buffer = ocl::Buffer::<i64>::builder()
-            .queue(queue.clone())
-            .flags(ocl::flags::MEM_READ_ONLY)
-            .len(stencil.len())
-            .fill_val(0)
-            .build()
-            .expect("Could not create OpenGL stencil buffer");
-
-        buffer.write(&stencil).enq().unwrap();
-        buffer
-    }
-
     /// Generate in and out OpenGL buffers with capacity to hold the cell data for our dimensions
     pub fn generate_grid_buffers<T>(&self, display: &T, starting_vec: Option<Vec<u8>>) -> Result<(GLBuffer<[u8]>, GLBuffer<[u8]>), &str>
     where T: Facade
@@ -144,9 +127,157 @@ impl<'a> GridDimensions<'a> {
         Ok((in_buffer, out_buffer))
     }
 
-    // pub fn generate_program_string(&self) -> String {
-    //
-    // }
+    /// Generate code for OpenCL kernel with hard-coded neighbor logic
+    pub fn generate_program_string(&self, survive: Vec<u32>, spawn: Vec<u32>) -> String {
+        // Get neighbor indexes
+        let offsets = self.cartesian_neighbor_offsets();
+        let neighbors = self.cartesian_neighbors();
+        let mut result = String::new();
+
+        // Open & name function, include parameters, open function body, declare neighbors variable
+        let func_start = "
+        __kernel void compute(
+            __global uchar* in_buffer,
+            __global uchar* out_buffer
+        ) {
+            uint neighbors = 0;
+            ulong index = get_global_id(0);
+        ";
+        result += &func_start;
+
+        // Gather the index of each dimension describing where a given cell is for each axis
+        let mut dimensions = Vec::with_capacity(self.dimensions.len());
+        let mut offset: u64 = 1;
+        for (index, dim) in self.dimensions.iter().enumerate() {
+            // If final dimension (x dimension) then directly take remainder index
+            if index == 0 {
+                dimensions.push(
+                    format!(r#"
+                    ulong dim{} = index;
+                    "#,
+                    index + 1,
+                    )
+                );
+            } else {
+                 dimensions.push(
+                     format!(r#"
+                    ulong dim{} = index / {1};
+                    index -= dim{0} * {1};
+                    "#,
+                    index + 1,
+                    offset,
+                    )
+                 );
+            }
+
+            offset *= *dim as u64;
+        }
+
+        result += &dimensions.into_iter().rev().collect::<Vec<String>>().join("");
+
+        // Generate conditional lookups for each neighbor
+        let mut neighbor_logic = Vec::with_capacity(neighbors.len());
+        for (address, offset) in neighbors.into_iter().zip(offsets.iter()) {
+            let mut conditions: Vec<String> = vec![];
+            for (dim, num) in address.iter().enumerate() {
+                // Near side neighbor logic
+                if *num == -1 {
+                    conditions.push(
+                        format!(
+                            "(dim{} != 0)",
+                            dim + 1
+                        )
+                    );
+                }
+                // Far side neighbor logic
+                if *num == 1 {
+                    conditions.push(
+                        format!(
+                            "(dim{} != {})",
+                            dim + 1,
+                            self.dimensions[dim] - 1
+                        )
+                    );
+                }
+            }
+            conditions.push(
+                format!(
+                    "({} + get_global_id(0) >= 0)",
+                    offset
+                )
+            );
+
+            neighbor_logic.push(
+                format!(r#"
+                    if ({}) {{
+                        neighbors += in_buffer[{} + get_global_id(0)];
+                    }}
+                    "#,
+                    conditions.join(" && "),
+                    offset
+                )
+            );
+
+        }
+        result += &neighbor_logic.into_iter().rev().collect::<Vec<String>>().join("");
+
+        // Generate survival rules
+        if survive.len() == 1 {
+            result += &format!(r#"
+                if (neighbors == {}) {{
+                    out_buffer[get_global_id(0)] = in_buffer[get_global_id(0)];
+                    return;
+                }}
+                "#,
+                survive[0]
+            );
+        } else if survive.len() > 1 {
+            result += &format!(r#"
+                if ({}) {{
+                    out_buffer[get_global_id(0)] = in_buffer[get_global_id(0)];
+                    return;
+                }}
+                "#,
+                survive.into_iter()
+                   .map(|x| format!("(neighbors == {})", x))
+                   .collect::<Vec<String>>()
+                   .join(" && "),
+            );
+        }
+
+        // Generate spawning rules
+        if spawn.len() == 1 {
+            result += &format!(r#"
+                if (neighbors == {}) {{
+                    out_buffer[get_global_id(0)] = 1;
+                    return;
+                }}
+                "#,
+                spawn[0]
+            );
+        } else if spawn.len() > 1 {
+            result += &format!(r#"
+                if ({}) {{
+                    out_buffer[get_global_id(0)] = 1;
+                    return;
+                }}
+                "#,
+                spawn.into_iter()
+                   .map(|x| format!("(neighbors == {})", x))
+                   .collect::<Vec<String>>()
+                   .join(" && "),
+            );
+        }
+
+        // Default if no other rules are met, and close function
+        let func_end = r#"
+            out_buffer[get_global_id(0)] = 0;
+        }
+        "#;
+        result += func_end;
+
+        result
+    }
 }
 
 /// Rendering objects
@@ -270,6 +401,7 @@ pub mod tests {
     use super::*;
     use std::collections::HashSet;
     use std::hash::Hash;
+    use std::fmt::Debug;
     use glium::glutin::ContextBuilder;
     use glium::glutin::dpi::PhysicalSize;
     use glium::glutin::event_loop::EventLoopBuilder;
@@ -365,43 +497,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_stencil_buffer() {
-        let cases = [
-            vec![5, 5],
-            vec![10, 10],
-            vec![255, 255, 255],
-            vec![10, 10, 10, 10],
-        ];
-
-        let conditions = [
-            vec![-6, -1, 4, -5, 5, -4, 1, 6],
-            vec![-11, -1, 9, -10, 10, -9, 1, 11],
-            vec![-65281, -256, 64769, -65026, -1, 65024, -64771, 254, 65279, -65280, -255, 64770, -65025, 65025, -64770, 255, 65280, -65279, -254, 64771, -65024, 1, 65026, -64769, 256, 65281],
-            vec![10, 991, -99, -999, 901, 99, 9, 1089, 1090, 989, 1000, -991, -1110, 1110, 1109, -111, 899, 891, 111, -1090, 91, 1010, -889, 11, 1111, -1099, 100, -1009, 889, 101, -989, -9, -900, -11, -1001, -89, -901, 1101, 999, 1011, -110, -10, -891, 110, 1009, -1101, -1091, 1001, -90, 900, -899, 89, 109, -91, 90, -1100, -100, -1, 909, -1109, -890, -990, -109, 990, 911, -101, -909, 1091, -1089, 1, 1099, -911, 890, -1111, -1011, -1010, -910, -1000, 1100, 910],
-        ];
-
-        let platform = ocl::Platform::default();
-        let device = ocl::Device::first(platform).expect("No valid OpenCL device found");
-        let context = ocl::Context::builder()
-            .platform(platform)
-            .devices(device.clone())
-            .build()
-            .expect("Could not create OpenCL context");
-        let queue = Queue::new(&context, device, None).unwrap();
-
-        for test in cases.into_iter().zip(conditions.into_iter()) {
-            let dimensions = GridDimensions::new(test.0.as_slice());
-
-            let stencil_buffer = dimensions.generate_stencil_buffer(&queue);
-
-            let mut stencil_vec = vec![0i64; test.1.len()];
-            stencil_buffer.read(&mut stencil_vec).enq().expect("Could not read from stencil buffer");
-
-            assert_vec_eq(stencil_vec, test.1);
-        }
-    }
-
-    #[test]
     fn test_board_buffers_size() {
         let cases = [
             vec![5, 5],
@@ -431,6 +526,31 @@ pub mod tests {
             let buffers = dimensions.generate_grid_buffers(&display, None).unwrap();
             assert_eq!(buffers.0.len(), buffers.1.len());
             assert_eq!(buffers.0.len(), test.1);
+        }
+    }
+
+    // TODO: improve this test
+    #[test]
+    fn test_create_compute_shader() {
+        let cases = [
+            vec![100, 100],
+        ];
+
+        let conditions = [
+            include_str!("./test/compute_programs/compute_100x100.cl"),
+        ];
+
+
+        for test in cases.into_iter().zip(conditions.into_iter()) {
+            let dimensions = GridDimensions::new(test.0.as_slice());
+            let mut program = dimensions.generate_program_string(
+                vec![2],
+                vec![3]
+            );
+
+            assert_eq!(
+                program.retain(|x| !x.is_whitespace()),
+                String::from(test.1).retain(|x| !x.is_whitespace()));
         }
     }
 }
