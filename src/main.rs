@@ -11,7 +11,7 @@ use ocl::Buffer as Buffer;
 
 use compute::*;
 use dtypes::*;
-use glium::{Display, GlObject, Surface, uniform};
+use glium::{Display, GlObject, PolygonMode, Surface, uniform};
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::glutin::event_loop::ControlFlow;
@@ -20,13 +20,13 @@ use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
 fn main() {
     // Init dimensions
-    let dimensions = GridDimensions::new(&[100, 100]);
+    let dimensions = GridDimensions::new(&[25, 25, 25]);
     let array_len = dimensions.dimension_size();
 
     // Game settings
-    let target_fps = 60;
-    let survive_rules = vec![2];
-    let spawn_rules = vec![3];
+    let target_fps = 144;
+    let survive_rules = vec![3, 5];
+    let spawn_rules = vec![4];
 
     // Init camera and settings
     let mut camera = Camera::default();
@@ -34,7 +34,7 @@ fn main() {
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
-        if index % 3 == 0 || index % 5 == 3 {
+        if index % 2 == 0 {
             array_vec.push(1);
         } else {
             array_vec.push(0);
@@ -45,7 +45,8 @@ fn main() {
     let events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
-        .with_title("Cellular Automata");
+        .with_title("Cellular Automata")
+        .with_transparent(true);
     let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
@@ -115,7 +116,6 @@ fn main() {
         .expect("Could not create out kernel from builder");
 
     let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, -2.0f32]);
-    // let board: &dyn Bufferable = &Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
     let vertex_buffer = board.get_vertex_buffer(&display);
     let indices = board.get_index_buffer(&display);
@@ -127,9 +127,23 @@ fn main() {
     // TODO: Make GL shaders dimension-agnostic
     // Init Glium shaders and program
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
+    let tessellation_control_src = include_str!("./shaders/tessellate_cube.tesc");
+    let tessellation_eval_src = include_str!("./shaders/evaluate_cubes.tese");
+    let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
     // TODO: Add a shader (probably tesselation, maybe geometry) to frontload buffer indexing to run once per index instead of once per pixel
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
-    let program = glium::Program::from_source(&display, triangle_shader_src, fragment_shader_src, None).unwrap();
+    let program = glium::Program::new(
+        &display,
+        glium::program::SourceCode {
+            vertex_shader: triangle_shader_src,
+            tessellation_control_shader: Some(tessellation_control_src),
+            tessellation_evaluation_shader: Some(tessellation_eval_src),
+            // tessellation_control_shader: None,
+            // tessellation_evaluation_shader: None,
+            geometry_shader: None,
+            fragment_shader: fragment_shader_src,
+        }
+    ).unwrap();
 
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
@@ -147,14 +161,6 @@ fn main() {
                 event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => match input.virtual_keycode {
                     // If key is tab, calculate game step
                     Some(event::VirtualKeyCode::Tab) => {
-                        computed_buffer_flag = compute_game_state(
-                            &in_cycle_kernel,
-                            &out_cycle_kernel,
-                            &queue,
-                            computed_buffer_flag,
-                            &in_buffer_cl,
-                            &out_buffer_cl,
-                        );
                     },
                     _ => return,
                 }
@@ -167,14 +173,14 @@ fn main() {
             event::Event::NewEvents(cause) => match cause {
                 // If event is the loop's refresh interval expiring, calculate game step
                 event::StartCause::ResumeTimeReached { .. } => (
-                    computed_buffer_flag = compute_game_state(
-                        &in_cycle_kernel,
-                        &out_cycle_kernel,
-                        &queue,
-                        computed_buffer_flag,
-                        &in_buffer_cl,
-                        &out_buffer_cl,
-                    )
+                    // computed_buffer_flag = compute_game_state(
+                    //     &in_cycle_kernel,
+                    //     &out_cycle_kernel,
+                    //     &queue,
+                    //     computed_buffer_flag,
+                    //     &in_buffer_cl,
+                    //     &out_buffer_cl,
+                    // )
                 ),
                 event::StartCause::Init => (),
                 _ => return,
@@ -213,6 +219,7 @@ fn main() {
                 write: true,
                 .. Default::default()
             },
+            polygon_mode: PolygonMode::Line,
             .. Default::default()
         };
 
@@ -224,8 +231,6 @@ fn main() {
                 &texture_out_cycle
             }
         };
-
-        camera.pass_rotate();
 
         // Draw new frame with uniforms
         target.draw(
@@ -242,6 +247,7 @@ fn main() {
                 tex: texture_buffer,
                 perspective: perspective,
                 view: camera.view_matrix(),
+                tess_level: 25,
             },
             &params
         ).unwrap();
@@ -257,6 +263,7 @@ fn main() {
             false => 0
         };
 
+        camera.pass_rotate();
         let next_interval = start_time + std::time::Duration::from_millis(wait_milliseconds);
         *control_flow = ControlFlow::WaitUntil(next_interval);
         last_frame_time = Instant::now()

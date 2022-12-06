@@ -327,11 +327,19 @@ impl Quad {
 
 impl Bufferable for Quad {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
-        VertexBuffer::new(display, &self.vertices).unwrap()
+        // VertexBuffer::new(display, &self.vertices).unwrap()
+        glium::VertexBuffer::new(display,
+                                 &[
+                                     Vertex { position: [-1.0, 0.0, -1.0],tex_coords: [1.0, 0.0, 0.0] },
+                                     Vertex { position: [1.0, 0.0, -1.0], tex_coords: [0.0, 0.0, 0.0] },
+                                     Vertex { position: [1.0, 0.0, 1.0], tex_coords: [0.0, 1.0, 0.0] },
+                                     Vertex { position: [-1.0, 0.0, 1.0], tex_coords: [1.0, 1.0, 0.0] },
+                                 ]
+        ).unwrap()
     }
 
     fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
+        IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &[0u16, 1, 2, 1, 2, 3]).unwrap()
     }
 }
 
@@ -376,8 +384,8 @@ impl Cube {
                 7, 4, 5,
                 7, 3, 5,
                 3, 5, 1,
-                0, 4, 2,
-                2, 4, 5,
+                0, 4, 1,
+                1, 4, 5,
                 2, 3, 6,
                 3, 6, 7,
             ],
@@ -391,7 +399,7 @@ impl Bufferable for Cube {
     }
 
     fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::TriangleStrip, &self.indices).unwrap()
+        IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &self.indices).unwrap()
     }
 }
 
@@ -401,6 +409,7 @@ pub struct Camera {
     up: [f32; 3],
     speed: f32,
     friction: f32,
+    movement_direction: [f32; 3],
 }
 
 impl Camera {
@@ -411,24 +420,40 @@ impl Camera {
             up: [0.0, 1.0, 0.0],
             speed: 0.005,
             friction: 0.001,
+            movement_direction: [0.0, 0.0, 0.0],
         }
     }
 
-    pub fn new(position: [f32; 3], direction: [f32; 3], up: [f32; 3], speed: f32, friction: f32) -> Self {
+    pub fn new(
+        position: [f32; 3],
+        direction: [f32; 3],
+        up: [f32; 3],
+        speed: f32,
+        friction: f32,
+        movement_direction: [f32; 3],
+    ) -> Self {
         Camera {
             position,
             direction,
             up,
             speed,
             friction,
+            movement_direction,
         }
     }
 
     /// Perform a passive rotation on the camera
     pub fn pass_rotate(&mut self) {
-        self.friction += 0.01;
-        self.position[0] = f32::sin(self.friction) * 5.0;
-        self.position[2] = f32::cos(self.friction) * 5.0;
+        self.friction += 0.003;
+
+        let x = f32::sin(self.friction) * 5.0;
+        let z = f32::cos(self.friction) * 5.0;
+
+        let y = f32::sin((x + z) / 15.0) * 15.0;
+
+        self.position[0] = x;
+        self.position[1] = y;
+        self.position[2] = z;
     }
 
     /// Get view matrix based on the camera's current position and direction
