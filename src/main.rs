@@ -28,6 +28,9 @@ fn main() {
     let survive_rules = vec![2];
     let spawn_rules = vec![3];
 
+    // Init camera and settings
+    let mut camera = Camera::default();
+
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
@@ -111,7 +114,7 @@ fn main() {
         .build()
         .expect("Could not create out kernel from builder");
 
-    let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, 1.0f32]);
+    let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, -2.0f32]);
     // let board: &dyn Bufferable = &Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
     let vertex_buffer = board.get_vertex_buffer(&display);
@@ -130,6 +133,8 @@ fn main() {
 
     // Main loop
     let mut computed_buffer_flag = LastComputed::IN;
+    let mut last_frame_time = Instant::now();
+
     events_loop.run(move |event, _, control_flow| {
         let start_time = Instant::now();
         let mut no_wait = false;
@@ -220,20 +225,23 @@ fn main() {
             }
         };
 
+        camera.pass_rotate();
+
         // Draw new frame with uniforms
         target.draw(
             &vertex_buffer,
             &indices,
             &program,
             &uniform! {
-                transform_matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
+                model: [
+                    [ 1.0, 0.0, 0.0, 0.0 ],
+                    [ 0.0, 1.0, 0.0, 0.0 ],
+                    [ 0.0, 0.0, 1.0, 0.0 ],
                     [ 0.0 , 0.0, 2.0, 1.0f32]
                 ],
                 tex: texture_buffer,
                 perspective: perspective,
+                view: camera.view_matrix(),
             },
             &params
         ).unwrap();
@@ -251,6 +259,7 @@ fn main() {
 
         let next_interval = start_time + std::time::Duration::from_millis(wait_milliseconds);
         *control_flow = ControlFlow::WaitUntil(next_interval);
+        last_frame_time = Instant::now()
     });
 }
 

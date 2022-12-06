@@ -395,6 +395,83 @@ impl Bufferable for Cube {
     }
 }
 
+pub struct Camera {
+    position: [f32; 3],
+    direction: [f32; 3],
+    up: [f32; 3],
+    speed: f32,
+    friction: f32,
+}
+
+impl Camera {
+    pub fn default() -> Self {
+        Camera {
+            position: [0.0, 0.0, 0.0],
+            direction: [0.0, 0.0, 0.0],
+            up: [0.0, 1.0, 0.0],
+            speed: 0.005,
+            friction: 0.001,
+        }
+    }
+
+    pub fn new(position: [f32; 3], direction: [f32; 3], up: [f32; 3], speed: f32, friction: f32) -> Self {
+        Camera {
+            position,
+            direction,
+            up,
+            speed,
+            friction,
+        }
+    }
+
+    /// Perform a passive rotation on the camera
+    pub fn pass_rotate(&mut self) {
+        self.friction += 0.01;
+        self.position[0] = f32::sin(self.friction) * 5.0;
+        self.position[2] = f32::cos(self.friction) * 5.0;
+    }
+
+    /// Get view matrix based on the camera's current position and direction
+    pub fn view_matrix(&self) -> [[f32; 4]; 4] {
+
+        let position = self.position;
+        let direction = self.position.into_iter().map(|x| -x).collect::<Vec<f32>>();
+        let up = self.up;
+
+        let f = {
+            let f = direction;
+            let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+            let len = len.sqrt();
+            [f[0] / len, f[1] / len, f[2] / len]
+        };
+
+        let s = [up[1] * f[2] - up[2] * f[1],
+            up[2] * f[0] - up[0] * f[2],
+            up[0] * f[1] - up[1] * f[0]];
+
+        let s_norm = {
+            let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+            let len = len.sqrt();
+            [s[0] / len, s[1] / len, s[2] / len]
+        };
+
+        let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
+            f[2] * s_norm[0] - f[0] * s_norm[2],
+            f[0] * s_norm[1] - f[1] * s_norm[0]];
+
+        let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+            -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+            -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
+
+        [
+            [s_norm[0], u[0], f[0], 0.0],
+            [s_norm[1], u[1], f[1], 0.0],
+            [s_norm[2], u[2], f[2], 0.0],
+            [p[0], p[1], p[2], 1.0],
+        ]
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use super::*;
