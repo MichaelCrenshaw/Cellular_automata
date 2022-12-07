@@ -21,12 +21,12 @@ use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 fn main() {
     // TODO: change dimension and vertex instantiation to never overflow; likely via a combination of geometry shaders deferred rendering
     // Init dimensions
-    let dimensions = GridDimensions::new(&[43, 43, 43]);
+    let dimensions = GridDimensions::new(&[20, 20, 20]);
     let array_len = dimensions.dimension_size();
 
     // Game settings
     let target_fps = 60;
-    let survive_rules = vec![2, 3, 4];
+    let survive_rules = vec![3, 4];
     let spawn_rules = vec![5];
 
     // Init camera and settings
@@ -39,7 +39,7 @@ fn main() {
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
-        if index % 11 == 0 || index % 21 == 3 {
+        if index % 11 == 0 || index % 12 == 1 || index % 10 == 9 {
             array_vec.push(1);
         } else {
             array_vec.push(0);

@@ -327,15 +327,15 @@ pub trait Bufferable {
 }
 
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 #[derive(Copy, Clone)]
 pub struct Quad {
     vertices: [Vertex; 4],
     indices: [u16; 6],
 }
-
+#[allow(useless_deprecated)]
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 impl Quad {
     pub fn new_rect(height: f32, width: f32, center: &[f32; 2]) -> Self {
 
@@ -362,9 +362,9 @@ impl Quad {
         }
     }
 }
-
+#[allow(useless_deprecated)]
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 impl Bufferable for Quad {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         // VertexBuffer::new(display, &self.vertices).unwrap()
@@ -384,13 +384,13 @@ impl Bufferable for Quad {
 }
 
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 pub struct Cube {
     vertices: [Vertex; 8]
 }
 
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 impl Cube {
     /// Generate new cube object
     pub fn new(height: f32, width: f32, depth: f32, center: &[f32; 3]) -> Self  {
@@ -421,9 +421,9 @@ impl Cube {
         }
     }
 }
-
+#[allow(useless_deprecated)]
 #[cfg(not(debug_assertions))]
-#[depricated(since="0.2.0", note="Kept only for reference")]
+#[deprecated(since="0.2.0", note="Kept only for reference")]
 impl Bufferable for Cube {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         VertexBuffer::new(display, &self.vertices).unwrap()
@@ -490,10 +490,6 @@ impl SpacedCubeVertexGrid {
                 tex_coords,
             });
             indices.push(x as u16);
-        }
-
-        for vert in &verts {
-            println!("{:?}", vert.position);
         }
 
         SpacedCubeVertexGrid {
