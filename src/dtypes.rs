@@ -1,6 +1,8 @@
+use std::fmt::Formatter;
 use glium::*;
 use glium::backend::Facade;
 use glium::buffer::Buffer as GLBuffer;
+use glium::index::PrimitiveType;
 
 /// Game-State objects
 #[derive(PartialEq, Copy, Clone)]
@@ -96,14 +98,13 @@ impl<'a> GridDimensions<'a> {
     //     (size as f64 / 8.0).ceil() as u64
     // }
 
+    // Trio of basic getter functions
     pub fn x(&self) -> u8 {
         self.dimensions[0]
     }
-
     pub fn y(&self) -> u8 {
         self.dimensions[1]
     }
-
     pub fn z(&self) -> u8 {
         self.dimensions[2]
     }
@@ -142,6 +143,8 @@ impl<'a> GridDimensions<'a> {
         Ok((in_buffer, out_buffer))
     }
 
+    // TODO: Profile and reconsider the generated code from this function,
+    //        manually enforcing branch-less code (or using matrix math) are likely options for improvements
     /// Generate code for OpenCL kernel with hard-coded neighbor logic
     pub fn generate_program_string(&self, survive: Vec<u32>, spawn: Vec<u32>) -> String {
         // Get neighbor indexes
@@ -160,12 +163,12 @@ impl<'a> GridDimensions<'a> {
         ";
         result += &func_start;
 
-        // Gather the index of each dimension describing where a given cell is for each axis
+        // Gather code conditionally adding neighbors
         let mut dimensions = Vec::with_capacity(self.dimensions.len());
         let mut offset: u64 = 1;
         for (index, dim) in self.dimensions.iter().enumerate() {
-            // If final dimension (x dimension) then directly take remainder index
             if index == 0 {
+                // If final dimension (x dimension) then directly take remainder index
                 dimensions.push(
                     format!(r#"
                     ulong dim{} = index;
@@ -174,15 +177,16 @@ impl<'a> GridDimensions<'a> {
                     )
                 );
             } else {
-                 dimensions.push(
-                     format!(r#"
+                // Otherwise get max quotient from running tally and reduce the tally accordingly
+                dimensions.push(
+                 format!(r#"
                     ulong dim{} = index / {1};
                     index -= dim{0} * {1};
                     "#,
                     index + 1,
                     offset,
                     )
-                 );
+                );
             }
 
             offset *= *dim as u64;
@@ -301,6 +305,20 @@ pub struct Vertex {
     pub(crate) position: [f32; 3],
     pub(crate) tex_coords: [f32; 3],
 }
+
+#[cfg(not(debug_assertions))]
+impl std::fmt::Debug for Vertex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            format!(
+                "position: {:?} \ntex_coords: {:?}",
+                self.position,
+                self.tex_coords
+            ).as_str()
+        )
+    }
+}
+
 implement_vertex!(Vertex, position, tex_coords);
 
 pub trait Bufferable {
@@ -308,12 +326,16 @@ pub trait Bufferable {
     fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16>;
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 #[derive(Copy, Clone)]
 pub struct Quad {
     vertices: [Vertex; 4],
     indices: [u16; 6],
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 impl Quad {
     pub fn new_rect(height: f32, width: f32, center: &[f32; 2]) -> Self {
 
@@ -341,10 +363,12 @@ impl Quad {
     }
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 impl Bufferable for Quad {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         // VertexBuffer::new(display, &self.vertices).unwrap()
-        glium::VertexBuffer::new(display,
+        VertexBuffer::new(display,
                                  &[
                                      Vertex { position: [-1.0, 0.0, -1.0],tex_coords: [1.0, 0.0, 0.0] },
                                      Vertex { position: [1.0, 0.0, -1.0], tex_coords: [0.0, 0.0, 0.0] },
@@ -359,14 +383,17 @@ impl Bufferable for Quad {
     }
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 pub struct Cube {
-    vertices: [Vertex; 8],
-    indices: [u16; 36],
+    vertices: [Vertex; 8]
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 impl Cube {
+    /// Generate new cube object
     pub fn new(height: f32, width: f32, depth: f32, center: &[f32; 3]) -> Self  {
-
         let positions = [
             [center[0] - width / 2.0, center[1] - height / 2.0, center[2] - depth / 2.0],
             [center[0] + width / 2.0, center[1] - height / 2.0, center[2] - depth / 2.0],
@@ -390,25 +417,13 @@ impl Cube {
         ];
 
         Cube {
-            vertices,
-            indices: [
-                0, 1, 2,
-                1, 2, 3,
-                2, 0, 4,
-                4, 2, 6,
-                6, 4, 7,
-                7, 4, 5,
-                7, 3, 5,
-                3, 5, 1,
-                0, 4, 1,
-                1, 4, 5,
-                2, 3, 6,
-                3, 6, 7,
-            ],
+            vertices
         }
     }
 }
 
+#[cfg(not(debug_assertions))]
+#[depricated(since="0.2.0", note="Kept only for reference")]
 impl Bufferable for Cube {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
         VertexBuffer::new(display, &self.vertices).unwrap()
@@ -429,14 +444,73 @@ impl Bufferable for Cube {
             5, 7, 6, 4,
             0, 1, 5, 4,
             2, 3, 7, 6,
-
         ]).unwrap()
     }
 }
 
-struct CubePlane {
-    vertices: [Vertex; 3],
-    indices: [u16; 36],
+pub struct SpacedCubeVertexGrid {
+    vertices: Vec<Vertex>,
+    indices: Vec<u16>,
+}
+
+impl SpacedCubeVertexGrid {
+    pub fn default() -> Self {
+        SpacedCubeVertexGrid {
+            vertices: vec![Vertex {
+                position: [0.0, 0.0, 0.0],
+                tex_coords: [0.0, 0.0, 0.0],
+            }],
+            indices: vec![0],
+        }
+    }
+
+    pub fn new(dims: &[u8; 3]) -> Self {
+        let mut verts = vec![];
+        let mut indices = vec![];
+
+        let num_cells: u64 = dims.into_iter().fold(1, |mut res, x| res * *x as u64);
+
+        // Generate the positions of all vertices required to display a 3d slice of the given dimension array
+        for x in 0..num_cells {
+            // Get place in each dimension by backtracking
+            let mut tally = x.clone();
+            let z = tally / (dims[1] as u64 * dims[0] as u64);
+            tally -= z * (dims[1] as u64 * dims[0] as u64);
+            let y = tally / dims[0] as u64;
+            tally -= y * dims[0] as u64;
+
+            let tex_coords = [tally as f32 / dims[0] as f32, y as f32 / dims[1] as f32, z as f32 / dims[2] as f32];
+            // Center the vertices around 0.0 0.0 0.0
+            let position = tex_coords.into_iter()
+                .map(|position| position - 0.5)
+                .collect::<Vec<f32>>();
+
+            verts.push(Vertex {
+                position: [position[0], position[1], position[2]],
+                tex_coords,
+            });
+            indices.push(x as u16);
+        }
+
+        for vert in &verts {
+            println!("{:?}", vert.position);
+        }
+
+        SpacedCubeVertexGrid {
+            vertices: verts,
+            indices
+        }
+    }
+}
+
+impl Bufferable for SpacedCubeVertexGrid {
+    fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex> {
+        VertexBuffer::new(display, self.vertices.as_slice()).unwrap()
+    }
+
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+        IndexBuffer::new(display, PrimitiveType::Points, self.indices.as_slice()).unwrap()
+    }
 }
 
 pub struct Camera {
@@ -449,6 +523,7 @@ pub struct Camera {
 }
 
 impl Camera {
+    /// Mainly for testing, get camera at a generic position and
     pub fn default() -> Self {
         Camera {
             position: [0.0, 0.0, 0.0],
@@ -480,16 +555,23 @@ impl Camera {
 
     /// Perform a passive rotation on the camera
     pub fn pass_rotate(&mut self) {
-        self.friction += 0.003;
+        self.friction += 0.006;
 
-        let x = f32::sin(self.friction) * 5.0;
-        let z = f32::cos(self.friction) * 5.0;
+        let x = f32::sin(self.friction) * 2.0;
+        let z = f32::cos(self.friction) * 2.0;
 
-        let y = f32::sin((x + z) / 15.0) * 15.0;
+        let y = f32::sin((x + z) / 150.0) * 50.0;
 
         self.position[0] = x;
         self.position[1] = y;
         self.position[2] = z;
+    }
+
+    /// Centers camera for viewing the board, optimized for 2d boards
+    pub fn center(&mut self) {
+        self.position[0] = 0.0;
+        self.position[1] = 0.0;
+        self.position[2] = 0.5;
     }
 
     /// Get view matrix based on the camera's current position and direction
@@ -499,36 +581,42 @@ impl Camera {
         let direction = self.position.into_iter().map(|x| -x).collect::<Vec<f32>>();
         let up = self.up;
 
-        let f = {
+        // Normalize forward direction
+        let fwd = {
             let f = direction;
             let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
             let len = len.sqrt();
             [f[0] / len, f[1] / len, f[2] / len]
         };
 
-        let s = [up[1] * f[2] - up[2] * f[1],
-            up[2] * f[0] - up[0] * f[2],
-            up[0] * f[1] - up[1] * f[0]];
+        // Generate plane from up and forward
+        let c_plane = [up[1] * fwd[2] - up[2] * fwd[1],
+            up[2] * fwd[0] - up[0] * fwd[2],
+            up[0] * fwd[1] - up[1] * fwd[0]];
 
-        let s_norm = {
-            let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+        // Generate normal of camera plane (faces right by convention)
+        let right = {
+            let len = c_plane[0] * c_plane[0] + c_plane[1] * c_plane[1] + c_plane[2] * c_plane[2];
             let len = len.sqrt();
-            [s[0] / len, s[1] / len, s[2] / len]
+            [c_plane[0] / len, c_plane[1] / len, c_plane[2] / len]
         };
 
-        let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
-            f[2] * s_norm[0] - f[0] * s_norm[2],
-            f[0] * s_norm[1] - f[1] * s_norm[0]];
+        // Normalized and transformed up direction
+        let up_norm = [fwd[1] * right[2] - fwd[2] * right[1],
+            fwd[2] * right[0] - fwd[0] * right[2],
+            fwd[0] * right[1] - fwd[1] * right[0]];
 
-        let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
-            -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
-            -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
+        // Normalized and transformed position
+        let pos = [-position[0] * right[0] - position[1] * right[1] - position[2] * right[2],
+            -position[0] * up_norm[0] - position[1] * up_norm[1] - position[2] * up_norm[2],
+            -position[0] * fwd[0] - position[1] * fwd[1] - position[2] * fwd[2]];
 
+        // View matrix
         [
-            [s_norm[0], u[0], f[0], 0.0],
-            [s_norm[1], u[1], f[1], 0.0],
-            [s_norm[2], u[2], f[2], 0.0],
-            [p[0], p[1], p[2], 1.0],
+            [right[0], up_norm[0], fwd[0], 0.0],
+            [right[1], up_norm[1], fwd[1], 0.0],
+            [right[2], up_norm[2], fwd[2], 0.0],
+            [pos[0], pos[1], pos[2], 1.0],
         ]
     }
 }
