@@ -45,8 +45,7 @@ fn main() {
     let events_loop = event_loop::EventLoop::new();
     let wb = window::WindowBuilder::new()
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
-        .with_title("Cellular Automata")
-        .with_transparent(true);
+        .with_title("Cellular Automata");
     let cb = ContextBuilder::new().with_depth_buffer(24);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
@@ -116,6 +115,7 @@ fn main() {
         .expect("Could not create out kernel from builder");
 
     let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, -2.0f32]);
+    // let board: &dyn Bufferable = &Quad::new_rect(2.0, 2.0, &[0.0f32, 0.0f32]);
 
     let vertex_buffer = board.get_vertex_buffer(&display);
     let indices = board.get_index_buffer(&display);
@@ -127,6 +127,8 @@ fn main() {
     // TODO: Make GL shaders dimension-agnostic
     // Init Glium shaders and program
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
+    // let tessellation_control_src = include_str!("./shaders/tessellate_quad.tesc");
+    // let tessellation_eval_src = include_str!("./shaders/evaluate_quads.tese");
     let tessellation_control_src = include_str!("./shaders/tessellate_cube.tesc");
     let tessellation_eval_src = include_str!("./shaders/evaluate_cubes.tese");
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
@@ -219,7 +221,7 @@ fn main() {
                 write: true,
                 .. Default::default()
             },
-            polygon_mode: PolygonMode::Line,
+            // polygon_mode: PolygonMode::Line,
             .. Default::default()
         };
 
@@ -247,7 +249,9 @@ fn main() {
                 tex: texture_buffer,
                 perspective: perspective,
                 view: camera.view_matrix(),
-                tess_level: 25,
+                tess_level_x: dimensions.x(),
+                tess_level_y: dimensions.y(),
+                tess_level_z: dimensions.z(),
             },
             &params
         ).unwrap();

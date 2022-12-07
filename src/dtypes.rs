@@ -96,6 +96,22 @@ impl<'a> GridDimensions<'a> {
     //     (size as f64 / 8.0).ceil() as u64
     // }
 
+    pub fn x(&self) -> u8 {
+        self.dimensions[0]
+    }
+
+    pub fn y(&self) -> u8 {
+        self.dimensions[1]
+    }
+
+    pub fn z(&self) -> u8 {
+        self.dimensions[2]
+    }
+
+    pub fn dims(&self) -> &'a [u8] {
+        self.dimensions
+    }
+
     /// Generate in and out OpenGL buffers with capacity to hold the cell data for our dimensions
     pub fn generate_grid_buffers<T>(&self, display: &T, starting_vec: Option<Vec<u8>>) -> Result<(GLBuffer<[u8]>, GLBuffer<[u8]>), &str>
     where T: Facade
@@ -339,7 +355,7 @@ impl Bufferable for Quad {
     }
 
     fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &[0u16, 1, 2, 1, 2, 3]).unwrap()
+        IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 4}, &[0u16, 1, 2, 3]).unwrap()
     }
 }
 
@@ -399,8 +415,28 @@ impl Bufferable for Cube {
     }
 
     fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::TrianglesList, &self.indices).unwrap()
+        // IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 2}, &self.indices).unwrap()
+        IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 4}, &[
+            0, 1, 3, 2,
+            0, 4, 6, 2,
+            1, 3, 7, 5,
+            5, 7, 6, 4,
+            0, 1, 5, 4,
+            2, 3, 7, 6,
+            0, 1, 3, 2,
+            0, 4, 6, 2,
+            1, 3, 7, 5,
+            5, 7, 6, 4,
+            0, 1, 5, 4,
+            2, 3, 7, 6,
+
+        ]).unwrap()
     }
+}
+
+struct CubePlane {
+    vertices: [Vertex; 3],
+    indices: [u16; 36],
 }
 
 pub struct Camera {
