@@ -323,7 +323,7 @@ implement_vertex!(Vertex, position, tex_coords);
 
 pub trait Bufferable {
     fn get_vertex_buffer(&self, display: &Display) -> VertexBuffer<Vertex>;
-    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16>;
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u32>;
 }
 
 #[cfg(not(debug_assertions))]
@@ -331,7 +331,7 @@ pub trait Bufferable {
 #[derive(Copy, Clone)]
 pub struct Quad {
     vertices: [Vertex; 4],
-    indices: [u16; 6],
+    indices: [u32; 6],
 }
 #[allow(useless_deprecated)]
 #[cfg(not(debug_assertions))]
@@ -378,8 +378,8 @@ impl Bufferable for Quad {
         ).unwrap()
     }
 
-    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
-        IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 4}, &[0u16, 1, 2, 3]).unwrap()
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u32> {
+        IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 4}, &[0, 1, 2, 3]).unwrap()
     }
 }
 
@@ -429,7 +429,7 @@ impl Bufferable for Cube {
         VertexBuffer::new(display, &self.vertices).unwrap()
     }
 
-    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u32> {
         // IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 2}, &self.indices).unwrap()
         IndexBuffer::new(display, index::PrimitiveType::Patches {vertices_per_patch: 4}, &[
             0, 1, 3, 2,
@@ -450,7 +450,7 @@ impl Bufferable for Cube {
 
 pub struct SpacedCubeVertexGrid {
     vertices: Vec<Vertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
 }
 
 impl SpacedCubeVertexGrid {
@@ -489,7 +489,7 @@ impl SpacedCubeVertexGrid {
                 position: [position[0], position[1], position[2]],
                 tex_coords,
             });
-            indices.push(x as u16);
+            indices.push(x as u32);
         }
 
         SpacedCubeVertexGrid {
@@ -504,7 +504,7 @@ impl Bufferable for SpacedCubeVertexGrid {
         VertexBuffer::new(display, self.vertices.as_slice()).unwrap()
     }
 
-    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u16> {
+    fn get_index_buffer(&self, display: &Display) -> IndexBuffer<u32> {
         IndexBuffer::new(display, PrimitiveType::Points, self.indices.as_slice()).unwrap()
     }
 }

@@ -42,17 +42,6 @@ void main() {
     float space_y = 0.2 / tess_level_y;
     float space_z = 0.2 / tess_level_z;
 
-    // Positions
-    vec4 near_bottom_left = gl_in[0].gl_Position + vec4(-space_x, -space_y, -space_z, 0.0);
-    vec4 near_bottom_right = gl_in[0].gl_Position + vec4(space_x, -space_y, -space_z, 0.0);
-    vec4 near_top_left = gl_in[0].gl_Position + vec4(-space_x, space_y, -space_z, 0.0);
-    vec4 near_top_right = gl_in[0].gl_Position + vec4(space_x, space_y, -space_z, 0.0);
-    vec4 far_bottom_left = gl_in[0].gl_Position + vec4(-space_x, -space_y, space_z, 0.0);
-    vec4 far_bottom_right = gl_in[0].gl_Position + vec4(space_x, -space_y, space_z, 0.0);
-    vec4 far_top_left = gl_in[0].gl_Position + vec4(-space_x, space_y, space_z, 0.0);
-    vec4 far_top_right = gl_in[0].gl_Position + vec4(space_x, space_y, space_z, 0.0);
-
-
     // Generate faces
     createVertex(vec3(-1.0, 1.0, 1.0), vec3(space_x, space_y, space_z));
     createVertex(vec3(-1.0, -1.0, 1.0), vec3(space_x, space_y, space_z));
