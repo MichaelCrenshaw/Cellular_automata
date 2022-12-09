@@ -121,7 +121,7 @@ impl<'a> GridDimensions<'a> {
             display,
             buffer::BufferType::ArrayBuffer,
             self.dimension_size() as usize,
-            buffer::BufferMode::Dynamic
+            buffer::BufferMode::Persistent
         ).expect("Could not generate in_buffer");
 
         // If the user supplied a starting vector, ensure the size is correct for the dimension grid and write it to in_buffer
@@ -137,7 +137,7 @@ impl<'a> GridDimensions<'a> {
             display,
             buffer::BufferType::ArrayBuffer,
             self.dimension_size() as usize,
-            buffer::BufferMode::Dynamic
+            buffer::BufferMode::Persistent
         ).expect("Could not generate out_buffer");
 
         Ok((in_buffer, out_buffer))

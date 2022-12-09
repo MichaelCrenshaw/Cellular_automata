@@ -11,7 +11,8 @@ use ocl::Buffer as Buffer;
 
 use compute::*;
 use dtypes::*;
-use glium::{Display, GlObject, PolygonMode, Surface, uniform};
+use glium::{CapabilitiesSource, Display, GlObject, PolygonMode, Surface, uniform};
+use glium::backend::Facade;
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::glutin::event_loop::ControlFlow;
@@ -19,7 +20,7 @@ use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
 
 fn main() {
-    // TODO: change dimension and vertex instantiation to never overflow; likely via a combination of geometry shaders deferred rendering
+    // TODO: Limit dimension total size to not go past buffer texture limit
     // Init dimensions
     let dimensions = GridDimensions::new(&[20, 20, 20]);
     let array_len = dimensions.dimension_size();
@@ -36,6 +37,8 @@ fn main() {
         camera.center();
     }
 
+    // TODO: Optimize this to only count and add live cells
+    // TODO: Add user-defined input for starting the simulation
     // Init board
     let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
     for index in 0..array_len {
@@ -65,7 +68,7 @@ fn main() {
     );
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
-    let queue = Queue::new(&context, device, Some(CommandQueueProperties::new().out_of_order().profiling())).unwrap();
+    let queue = Queue::new(&context, device, Some(CommandQueueProperties::new().out_of_order())).unwrap();
     let program = create_program(
         &context,
         device,
@@ -81,9 +84,6 @@ fn main() {
     let in_buffer = buffers.0;
     let out_buffer = buffers.1;
 
-    // I've tried every way I can think to make the KernelBuilder cloneable, movable, heap-allocated, or whatever works to generate this outside of main.
-    // Annoyingly the library authors have clearly outdated documentation on the process, and haven't responded to other people's issues with this on GitHub.
-    // If I ever figure out this dark magic then I'll write up new docs, initiate a pull request, and move the code below.
     // Create KernelBuffer to generate kernels from, rather than just reusing existing immutable kernels because OCL doesn't like that other threads "could mutate them"
     let mut in_buffer_cl = Buffer::<u8>::from_gl_buffer(
         &context,
@@ -120,22 +120,22 @@ fn main() {
         .build()
         .expect("Could not create out kernel from builder");
 
-    // let board: &dyn Bufferable = &Cube::new(2.0, 2.0, 2.0, &[0.0f32, 0.0f32, -2.0f32]);
     let board: &dyn Bufferable = &SpacedCubeVertexGrid::new(&[dimensions.x(), dimensions.y(), dimensions.z()]);
 
+    // TODO: Offload both of these to a simplified buffer and basic instancing (with vertices added by compute kernels...)
     let vertex_buffer = board.get_vertex_buffer(&display);
     let indices = board.get_index_buffer(&display);
 
+    // INFO: To get past the buffer texture length limit I'll need to offload an enormous amount of logic to compute shaders,
+    //        creating vertices during the compute stage and giving them explicit values that don't require a buffer lookup in other shaders
     // BufferTexture initialization
     let texture_in_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, in_buffer, BufferTextureType::Unsigned).unwrap();
     let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
-    // TODO: Make GL shaders dimension-agnostic
     // Init Glium shaders and program
     // let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
     let geometry_shader = include_str!("./shaders/generate_cubes.geom");
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
-    // TODO: Add a shader (probably tesselation, maybe geometry) to frontload buffer indexing to run once per index instead of once per pixel
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
     let program = glium::Program::new(
         &display,
@@ -206,7 +206,7 @@ fn main() {
         let mut target = display.draw();
         target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
 
-        // TODO: Add camera controls
+        // TODO: Add camera controls, GUI, and dimension controls
         // Magic matrix that handles incredibly complex perspective transformations for me
         let perspective = {
             let (width, height) = target.get_dimensions();
@@ -281,7 +281,7 @@ fn main() {
         };
 
         camera.pass_rotate();
-        let next_interval = start_time + std::time::Duration::from_millis(wait_milliseconds);
+        let next_interval = start_time + Duration::from_millis(wait_milliseconds);
         *control_flow = ControlFlow::WaitUntil(next_interval);
         last_frame_time = Instant::now()
     });
