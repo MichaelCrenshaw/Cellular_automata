@@ -1,5 +1,6 @@
 mod compute;
-mod dtypes;
+mod render;
+mod game_objects;
 
 extern crate ocl;
 extern crate ocl_interop;
@@ -10,7 +11,8 @@ use ocl::*;
 use ocl::Buffer as Buffer;
 
 use compute::*;
-use dtypes::*;
+use render::*;
+use game_objects::*;
 use glium::{CapabilitiesSource, Display, GlObject, PolygonMode, Surface, uniform};
 use glium::backend::Facade;
 use glium::glutin::{ event_loop, window, dpi, event };

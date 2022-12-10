@@ -3,7 +3,7 @@ extern crate ocl;
 
 use ocl::{Device, Context, Queue, Program, Buffer, Kernel};
 use ocl::builders::KernelCmd;
-use crate::dtypes::LastComputed;
+use crate::game_objects::LastComputed;
 
 // Base compute kernel, INFO: currently for 2d calculations using 1d index wrapping
 pub static DEFAULT_KERNEL: &'static str = include_str!("./shaders/compute.cl");
