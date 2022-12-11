@@ -1,6 +1,23 @@
 use glium::*;
 use glium::index::PrimitiveType;
+use glium::glutin::event::VirtualKeyCode;
 
+
+/// Normalize a vector to a length of 1 with the same proportions
+fn unit_vector_reduce(vec: &Vec<f32>) -> Vec<f32> {
+    let mut vec_magnitude = 0f32;
+    vec.iter().for_each(|x| vec_magnitude += x.powf(2f32));
+    vec_magnitude = f32::sqrt(vec_magnitude);
+    vec.into_iter().map(|x| x / vec_magnitude).collect::<Vec<f32>>()
+}
+
+/// Normalize a vector, then scale the result to produce an artificial transform effect
+fn scaled_vector_reduce(vec: Vec<f32>, scale: f32) -> Vec<f32> {
+    let mut vec_magnitude = 0f32;
+    vec.iter().for_each(|x| vec_magnitude += x.powf(2f32));
+    vec_magnitude = f32::sqrt(vec_magnitude);
+    vec.into_iter().map(|x| x / (vec_magnitude / scale)).collect::<Vec<f32>>()
+}
 
 /// Rendering objects
 #[derive(Copy, Clone)]
@@ -78,12 +95,13 @@ impl Bufferable for SpacedCubeVertexGrid {
     }
 }
 
-
+// TODO: Implement smoothed camera movement using movement direction and friction
 pub struct Camera {
     position: [f32; 3],
     direction: [f32; 3],
     up: [f32; 3],
     speed: f32,
+    scale: f32,
     friction: f32,
     movement_direction: [f32; 3],
 }
@@ -93,10 +111,11 @@ impl Camera {
     /// Mainly for testing, get camera at a generic position and
     pub fn default() -> Self {
         Camera {
-            position: [0.0, 0.0, 0.0],
+            position: [0.0, 0.0, 1.0],
             direction: [0.0, 0.0, 0.0],
             up: [0.0, 1.0, 0.0],
-            speed: 0.005,
+            speed: 0.05,
+            scale: 1.0,
             friction: 0.001,
             movement_direction: [0.0, 0.0, 0.0],
         }
@@ -108,6 +127,7 @@ impl Camera {
         direction: [f32; 3],
         up: [f32; 3],
         speed: f32,
+        scale: f32,
         friction: f32,
         movement_direction: [f32; 3],
     ) -> Self {
@@ -116,26 +136,67 @@ impl Camera {
             direction,
             up,
             speed,
+            scale,
             friction,
             movement_direction,
         }
     }
 
-    /// Perform a passive rotation on the camera
-    pub fn pass_rotate(&mut self) {
-        self.friction += 0.006;
-
-        let x = f32::sin(self.friction) * 2.0;
-        let z = f32::cos(self.friction) * 2.0;
-
-        let y = f32::sin((x + z) / 150.0) * 50.0;
-
-        self.position[0] = x;
-        self.position[1] = y;
-        self.position[2] = z;
+    /// Internal function for moving the camera to a normalized position around a sphere
+    fn move_to_position(&mut self, vec: Vec<f32>) {
+        let normal_vec = scaled_vector_reduce(vec, self.scale);
+        for (index, val) in normal_vec.into_iter().enumerate() {
+            self.position[index] = val
+        }
     }
 
-    /// Centers camera for viewing the board, optimized for 2d boards
+    /// Move camera up along sphere's logical surface
+    pub fn strafe_up(&mut self) {
+        let mut position = self.position;
+        position[1] += self.speed;
+        self.move_to_position(position.to_vec())
+    }
+
+    /// Move camera left along sphere's logical surface
+    pub fn strafe_left(&mut self) {
+        let mut position = self.position;
+        position[0] -= self.speed;
+        self.move_to_position(position.to_vec())
+    }
+
+    /// Move camera down along sphere's logical surface
+    pub fn strafe_down(&mut self) {
+        let mut position = self.position;
+        position[1] -= self.speed;
+        self.move_to_position(position.to_vec())
+    }
+
+    /// Move camera right along sphere's logical surface
+    pub fn strafe_right(&mut self) {
+        let mut position = self.position;
+        position[0] += self.speed;
+        self.move_to_position(position.to_vec())
+    }
+
+    /// Scale the grid's size up
+    pub fn zoom_in(&mut self) {
+        let new_scale = self.scale - self.speed;
+        if new_scale < 1f32 { self.scale = 1f32 } else { self.scale = new_scale }
+        self.move_to_position(self.position.to_vec())
+    }
+
+    /// Scale the grid's size down
+    pub fn zoom_out(&mut self) {
+        self.scale += self.speed;
+        self.move_to_position(self.position.to_vec())
+    }
+
+    /// Perform a passive rotation on the camera
+    pub fn pass_rotate(&mut self) {
+        self.strafe_left()
+    }
+
+    /// Centers camera for viewing the board, meant for 2d boards
     pub fn center(&mut self) {
         self.position[0] = 0.0;
         self.position[1] = 0.0;
@@ -144,7 +205,6 @@ impl Camera {
 
     /// Get view matrix based on the camera's current position and direction
     pub fn view_matrix(&self) -> [[f32; 4]; 4] {
-
         let position = self.position;
         let direction = self.position.into_iter().map(|x| -x).collect::<Vec<f32>>();
         let up = self.up;

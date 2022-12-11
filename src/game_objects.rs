@@ -1,7 +1,13 @@
 use std::fmt::Formatter;
+use std::time::{Duration, Instant};
 use glium::backend::Facade;
 use glium::buffer::Buffer as GLBuffer;
 use glium::buffer::{  BufferType, BufferMode };
+use glium::glutin::event::{ElementState, KeyboardInput, VirtualKeyCode};
+use glium::{Display, IndexBuffer, Program, Surface, uniform, VertexBuffer};
+use glium::texture::buffer_texture::BufferTexture;
+use crate::render::{Camera, Vertex};
+
 
 /// Game-State objects
 #[derive(PartialEq, Copy, Clone)]
@@ -11,12 +17,12 @@ pub(crate) enum LastComputed {
 }
 
 /// Struct which contains methods for dimension-specific logic of the game board
-pub struct GridDimensions<'a> {
-    dimensions: &'a [u8],
+pub struct GridDimensions {
+    dimensions: Vec<u8>,
 }
 
-impl<'a> GridDimensions<'a> {
-    pub fn new(dimensions: &[u8]) -> GridDimensions {
+impl GridDimensions {
+    pub fn new(dimensions: Vec<u8>) -> GridDimensions {
         GridDimensions {
             dimensions
         }
@@ -58,7 +64,7 @@ impl<'a> GridDimensions<'a> {
     ///  such that a cell's index applied to the returned values will return the indices of each of that cell's neighbors
     pub fn cartesian_neighbor_offsets(&self) -> Vec<i64> {
         let neighbors = self.cartesian_neighbors();
-        let dimensions = self.dimensions;
+        let dimensions = &self.dimensions;
 
         // Collect the index offsets for each cell around a given point of origin
         let temp = neighbors.into_iter()
@@ -81,7 +87,7 @@ impl<'a> GridDimensions<'a> {
     /// Get cell count of grid
     pub fn dimension_size(&self) -> u64 {
         let mut size: u64 = 1;
-        for dim in self.dimensions {
+        for dim in self.dimensions.as_slice() {
             size *= *dim as u64
         }
         size
@@ -108,7 +114,7 @@ impl<'a> GridDimensions<'a> {
         self.dimensions[2]
     }
 
-    pub fn dims(&self) -> &'a [u8] {
+    pub fn dims(self) -> Vec<u8> {
         self.dimensions
     }
 
@@ -298,6 +304,335 @@ impl<'a> GridDimensions<'a> {
     }
 }
 
+impl Clone for GridDimensions {
+    fn clone(&self) -> Self {
+        GridDimensions {
+            dimensions: self.dimensions.clone()
+        }
+    }
+}
+
+/// Stores and modifies the game's gui state
+#[derive(PartialEq, Copy, Clone)]
+pub enum GUIState {
+    Menu,
+    Settings,
+    ClearView,
+}
+
+impl GUIState {
+    pub fn menu(&mut self) {
+        *self = GUIState::Menu
+    }
+    
+    pub fn settings(&mut self) {
+        *self = GUIState::Settings
+    }
+    
+    pub fn clear(&mut self) {
+        *self = GUIState::ClearView
+    }
+}
+
+/// Stores and modifies state varI'iables for the game
+pub struct GameOptions {
+    fps: u8,
+    sps: u8,
+    // TPS should really only ever be the same value
+    tps: u8,
+    spinning: bool,
+    paused: bool,
+}
+
+impl GameOptions {
+    /// Create GameOptions object with default values
+    pub fn default() -> Self {
+        GameOptions {
+            fps: 165,
+            sps: 20,
+            tps: 255,
+            spinning: false,
+            paused: false,
+        }
+    }
+
+    /// Create new GameOptions object from params
+    pub fn new(
+        frames_per_second: u8,
+        steps_per_second: u8,
+        ticks_per_second: u8,
+        spinning: bool,
+        paused: bool,
+    ) -> Self {
+        GameOptions {
+            fps: frames_per_second,
+            sps: steps_per_second,
+            tps: ticks_per_second,
+            spinning,
+            paused,
+        }
+    }
+}
+
+/// Handle basic game settings like fps,
+pub struct KeyBindings {
+    menu: VirtualKeyCode,
+    pause: VirtualKeyCode,
+    step_simulation: VirtualKeyCode,
+    strafe_up: VirtualKeyCode,
+    strafe_left: VirtualKeyCode,
+    strafe_down: VirtualKeyCode,
+    strafe_right: VirtualKeyCode,
+    zoom_in: VirtualKeyCode,
+    zoom_out: VirtualKeyCode,
+    toggle_spin: VirtualKeyCode,
+}
+
+impl KeyBindings {
+    /// Instantiate with default keybindings
+    pub fn default() -> Self {
+        KeyBindings {
+            menu: VirtualKeyCode::Escape,
+            pause: VirtualKeyCode::Space,
+            step_simulation: VirtualKeyCode::Tab,
+            strafe_up: VirtualKeyCode::W,
+            strafe_left: VirtualKeyCode::A,
+            strafe_down: VirtualKeyCode::S,
+            strafe_right: VirtualKeyCode::D,
+            zoom_in: VirtualKeyCode::R,
+            zoom_out: VirtualKeyCode::F,
+            toggle_spin: VirtualKeyCode::Q,
+        }
+    }
+}
+
+/// Data backbone of GameManager, holds values for logical calculations
+struct GameCache {
+    last_frame: Instant,
+    last_step: Instant,
+    last_tick: Instant,
+    queued_allowed_steps: u32,
+}
+
+/// Coordinates game actions through various game objects
+pub struct GameManager {
+    dimensions: GridDimensions,
+    camera: Camera,
+    settings: KeyBindings,
+    window: GUIState,
+    state: GameOptions,
+    cache: GameCache,
+}
+
+impl GameManager {
+    pub fn new(
+        dimensions: GridDimensions,
+        camera: Camera,
+        settings: KeyBindings,
+        window: GUIState,
+        state: GameOptions,
+    ) -> GameManager {
+        GameManager {
+            dimensions,
+            camera,
+            settings,
+            window,
+            state,
+            cache: GameCache {
+                last_frame: Instant::now(),
+                last_step: Instant::now(),
+                last_tick: Instant::now(),
+                queued_allowed_steps: 0,
+            }
+        }
+    }
+
+    /// Return whether or not the game is currently paused
+    pub fn is_paused(&self) -> bool {
+        self.state.paused || self.window != GUIState::Menu
+    }
+
+    /// Return the configured tick interval in milliseconds
+    fn tick_interval(&self) -> u64 {
+        1000 / (self.state.tps as u64)
+    }
+
+    /// Return the configured framerate interval in milliseconds
+    fn frame_interval(&self) -> u64 {
+        1000 / (self.state.fps as u64)
+    }
+
+    /// Return the configured compute step interval in milliseconds
+    fn step_interval(&self) -> u64 {
+        1000 / (self.state.sps as u64)
+    }
+
+    /// Returns whether or not it is time to step the game again, and if so updates the previous tick time
+    pub fn tick_wait_over(&mut self) -> bool {
+        if Instant::now().duration_since(self.cache.last_tick).as_millis() as u64 >= self.tick_interval() {
+            self.cache.last_tick = Instant::now();
+            return true;
+        }
+        false
+    }
+
+    /// Returns whether or not it is time to draw the next frame, and if so updates the previous frame draw time
+    pub fn frame_wait_over(&mut self) -> bool {
+        if Instant::now().duration_since(self.cache.last_frame).as_millis() as u64 >= self.frame_interval() {
+            self.cache.last_frame = Instant::now();
+            return true;
+        }
+        false
+    }
+
+    /// Returns whether or not it is time to run the next step, and if so updates the previous step time
+    pub fn step_wait_over(&mut self) -> bool {
+        if self.cache.queued_allowed_steps > 0 {
+            self.cache.queued_allowed_steps -= 1;
+            self.cache.last_step = Instant::now();
+            return true;
+        }
+
+        if self.is_paused() {
+            return false;
+        }
+
+        if Instant::now().duration_since(self.cache.last_step).as_millis() as u64 >= self.step_interval() {
+            self.cache.last_step = Instant::now();
+            return true;
+        }
+        false
+    }
+
+    /// Returns the correct wait time before the next tick should be run
+    pub fn next_tick_time(&self, start_time: Instant) -> Instant {
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match self.tick_interval() >= elapsed_time {
+            true => self.tick_interval() - elapsed_time,
+            false => 0
+        };
+
+        start_time + Duration::from_millis(wait_milliseconds)
+    }
+
+    /// Allows an additional game step to be calculated without waiting for the step interval
+    fn allow_one_step(&mut self) {
+        self.cache.queued_allowed_steps += 1;
+    }
+
+    /// Handles a keypress from the main loop; changing state, camera angle, and settings as needed
+    pub fn handle_keypress(&mut self, key: KeyboardInput) {
+        match key {
+            KeyboardInput { state, virtual_keycode, .. } => {
+                if let Some(key) = virtual_keycode { match key {
+                    key if key == self.settings.menu && state == ElementState::Pressed => {
+                        // TODO: Implement a menu view
+                        if self.window == GUIState::Menu {
+                            self.window.clear();
+                        } else {
+                            self.window.menu();
+                        }
+                    },
+                    key if key == self.settings.pause && state == ElementState::Pressed => {
+                        self.state.paused = !self.state.paused;
+                    },
+                    key if key == self.settings.step_simulation && state == ElementState::Pressed => {
+                        self.allow_one_step();
+                    },
+                    key if key == self.settings.strafe_up => {
+                        self.camera.strafe_up();
+                    },
+                    key if key == self.settings.strafe_left => {
+                        self.camera.strafe_left();
+                    },
+                    key if key == self.settings.strafe_down => {
+                        self.camera.strafe_down();
+                    },
+                    key if key == self.settings.strafe_right => {
+                        self.camera.strafe_right();
+                    },
+                    key if key == self.settings.zoom_in => {
+                        self.camera.zoom_in();
+                    },
+                    key if key == self.settings.zoom_out => {
+                        self.camera.zoom_out();
+                    },
+                    key if key == self.settings.toggle_spin && state == ElementState::Pressed => {
+                        self.state.spinning = !self.state.spinning;
+                    }
+                    _ => ()
+                }}
+            }
+        }
+    }
+
+    /// Draws a new frame with current variables for all objects
+    pub fn draw_frame(
+        &self,
+        display: &Display,
+        program: &Program,
+        vertex_buffer: &VertexBuffer<Vertex>,
+        index_buffer: &IndexBuffer<u32>,
+        texture_buffer: &BufferTexture<u8>,
+        offset: u32
+    ) {
+        let mut target = display.draw();
+        target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
+
+        // Magic matrix that handles incredibly complex perspective transformations for me
+        let perspective = {
+            let (width, height) = target.get_dimensions();
+            let aspect_ratio = height as f32 / width as f32;
+
+            let fov: f32 = std::f32::consts::PI / 3.0;
+            let zfar = 1024.0;
+            let znear = 0.1;
+
+            let f = 1.0 / (fov / 2.0).tan();
+
+            [
+                [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
+                [         0.0         ,     f ,              0.0              ,   0.0],
+                [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
+                [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+            ]
+        };
+
+        // Drawing parameters, only needs to be changed for testing really
+        let params = glium::DrawParameters {
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                .. Default::default()
+            },
+            .. Default::default()
+        };
+
+        target.draw(
+            vertex_buffer,
+            index_buffer,
+            &program,
+            &uniform! {
+                // INFO: should other scaling methods become too cumbersome, this matrix would be the correct place to scale the board's size
+                model: [
+                    [ 1.0, 0.0, 0.0, 0.0 ],
+                    [ 0.0, 1.0, 0.0, 0.0 ],
+                    [ 0.0, 0.0, 1.0, 0.0 ],
+                    [ 0.0 , 0.0, 0.0, 1.0f32]
+                ],
+                tex: texture_buffer,
+                perspective: perspective,
+                view: self.camera.view_matrix(),
+                tess_level_x: self.dimensions.x(),
+                tess_level_y: self.dimensions.y(),
+                tess_level_z: self.dimensions.z(),
+                offset: offset,
+            },
+            &params
+        ).unwrap();
+        target.finish().unwrap();
+    }
+}
 
 #[cfg(test)]
 pub mod tests {
@@ -346,7 +681,7 @@ pub mod tests {
 
         for test in cases.into_iter().zip(conditions.into_iter()) {
             let dims = test.0;
-            let dimensions = GridDimensions::new(dims.as_slice());
+            let dimensions = GridDimensions::new(dims);
 
             let neighbors = dimensions.cartesian_neighbors();
 
@@ -370,7 +705,7 @@ pub mod tests {
 
         for test in cases.into_iter().zip(conditions.into_iter()) {
             let dims = test.0;
-            let dimensions = GridDimensions::new(dims.as_slice());
+            let dimensions = GridDimensions::new(dims);
 
             let neighbors = dimensions.cartesian_neighbor_offsets();
 
@@ -393,7 +728,7 @@ pub mod tests {
         ];
 
         for test in cases.into_iter().zip(conditions.into_iter()) {
-            let dimensions = GridDimensions::new(test.0.as_slice());
+            let dimensions = GridDimensions::new(test.0);
 
             assert_eq!(test.1, dimensions.dimension_size());
         }
@@ -425,7 +760,7 @@ pub mod tests {
         let display = glium::HeadlessRenderer::new(context).unwrap();
 
         for test in cases.into_iter().zip(conditions.into_iter()) {
-            let dimensions = GridDimensions::new(test.0.as_slice());
+            let dimensions = GridDimensions::new(test.0);
             let buffers = dimensions.generate_grid_buffers(&display, None).unwrap();
             assert_eq!(buffers.0.len(), buffers.1.len());
             assert_eq!(buffers.0.len(), test.1);
@@ -445,7 +780,7 @@ pub mod tests {
 
 
         for test in cases.into_iter().zip(conditions.into_iter()) {
-            let dimensions = GridDimensions::new(test.0.as_slice());
+            let dimensions = GridDimensions::new(test.0);
             let mut program = dimensions.generate_program_string(
                 vec![2],
                 vec![3]

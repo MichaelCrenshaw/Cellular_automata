@@ -5,6 +5,7 @@ mod game_objects;
 extern crate ocl;
 extern crate ocl_interop;
 extern crate glium;
+extern crate core;
 
 use std::time::{Duration, Instant};
 use ocl::*;
@@ -22,28 +23,32 @@ use glium::texture::buffer_texture::{BufferTexture, BufferTextureType};
 
 
 fn main() {
-    // TODO: Limit dimension total size to not go past buffer texture limit
-    // Init dimensions
-    let dimensions = GridDimensions::new(&[20, 20, 20]);
-    let array_len = dimensions.dimension_size();
-
     // Game settings
-    let target_fps = 60;
     let survive_rules = vec![3, 4];
     let spawn_rules = vec![5];
 
-    // Init camera and settings
+    // TODO: Limit dimension total size to not go past buffer texture limit
+    // Init game objects
+    let dimensions = GridDimensions::new(vec![20, 20, 20]);
     let mut camera = Camera::default();
-    camera.pass_rotate();
-    if dimensions.z() == 1 {
-        camera.center();
-    }
+    let mut bindings = KeyBindings::default();
+    let mut window_state = GUIState::Menu;
+    let mut game_state = GameOptions::default();
+
+    let mut manager = GameManager::new(
+        dimensions.clone(),
+        camera,
+        bindings,
+        window_state,
+        game_state,
+    );
 
     // TODO: Optimize this to only count and add live cells
     // TODO: Add user-defined input for starting the simulation
     // Init board
-    let mut array_vec: Vec<u8> = Vec::with_capacity(array_len as usize);
-    for index in 0..array_len {
+    let array_len = &dimensions.dimension_size();
+    let mut array_vec: Vec<u8> = Vec::with_capacity(*array_len as usize);
+    for index in 0..*array_len {
         if index % 11 == 0 || index % 12 == 1 || index % 10 == 9 {
             array_vec.push(1);
         } else {
@@ -151,31 +156,39 @@ fn main() {
     ).unwrap();
 
     // Main loop
-    let mut resume = false;
-    let mut last_toggle = Instant::now();
-
     let mut computed_buffer_flag = LastComputed::IN;
     let mut last_frame_time = Instant::now();
 
 
     events_loop.run(move |event, _, control_flow| {
         let start_time = Instant::now();
-        let mut no_wait = false;
+
+        // Use last computed buffer as texture input
+        let texture_buffer = {
+            if LastComputed::IN == computed_buffer_flag {
+                &texture_in_cycle
+            } else {
+                &texture_out_cycle
+            }
+        };
 
         match event {
             event::Event::WindowEvent { event, .. } => match event {
+                // When resizing the window, redraw frame immediately
                 event::WindowEvent::Resized(_) => {
-                    no_wait = true;
+                    manager.draw_frame(
+                        &display,
+                        &program,
+                        &vertex_buffer,
+                        &indices,
+                        &texture_buffer,
+                        0u32
+                    );
+                    return;
                 },
-                event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => match input.virtual_keycode {
-                    // If key is tab, calculate game step
-                    Some(event::VirtualKeyCode::Tab) => {
-                        // Add delay to toggling state, so repeating keys don't screw with the user
-                        if last_toggle + Duration::from_millis(250) > Instant::now() {return}
-                        resume = !resume;
-                        last_toggle = Instant::now();
-                    },
-                    _ => return,
+                event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => {
+                     &manager.handle_keypress(input);
+                    return;
                 }
                 event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
@@ -185,106 +198,39 @@ fn main() {
             },
             event::Event::NewEvents(cause) => match cause {
                 // If event is the loop's refresh interval expiring, calculate game step
-                event::StartCause::ResumeTimeReached { .. } => {
-                    if !resume {
-                        return
-                    }
-                    computed_buffer_flag = compute_game_state(
-                        &in_cycle_kernel,
-                        &out_cycle_kernel,
-                        &queue,
-                        computed_buffer_flag,
-                        &in_buffer_cl,
-                        &out_buffer_cl,
-                    )
-                },
+                event::StartCause::ResumeTimeReached { .. } => {}
                 event::StartCause::Init => (),
                 _ => return,
             },
             _ => return
         }
 
-        // If refresh interval interrupts the program, redraw the frame and step the game once
-        let mut target = display.draw();
-        target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
+        // Compute next game step at step interval if game isn't paused
+        if manager.step_wait_over() {
+            computed_buffer_flag = compute_game_state(
+                &in_cycle_kernel,
+                &out_cycle_kernel,
+                &queue,
+                computed_buffer_flag,
+                &in_buffer_cl,
+                &out_buffer_cl,
+            );
+        }
 
-        // TODO: Add camera controls, GUI, and dimension controls
-        // Magic matrix that handles incredibly complex perspective transformations for me
-        let perspective = {
-            let (width, height) = target.get_dimensions();
-            let aspect_ratio = height as f32 / width as f32;
+        // Draw new frame at framerate interval
+        if manager.frame_wait_over() {
+            manager.draw_frame(
+                &display,
+                &program,
+                &vertex_buffer,
+                &indices,
+                &texture_buffer,
+                0u32
+            );
+        }
 
-            let fov: f32 = std::f32::consts::PI / 3.0;
-            let zfar = 1024.0;
-            let znear = 0.1;
-
-            let f = 1.0 / (fov / 2.0).tan();
-
-            [
-                [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
-                [         0.0         ,     f ,              0.0              ,   0.0],
-                [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
-                [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
-            ]
-        };
-
-        // Basic depth parameters
-        let params = glium::DrawParameters {
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                .. Default::default()
-            },
-            // polygon_mode: PolygonMode::Line,
-            .. Default::default()
-        };
-
-        // Use last computed buffer as input for fragment shader
-        let texture_buffer = {
-            if LastComputed::IN == computed_buffer_flag {
-                &texture_in_cycle
-            } else {
-                &texture_out_cycle
-            }
-        };
-
-        // Draw new frame with uniforms
-        target.draw(
-            &vertex_buffer,
-            &indices,
-            &program,
-            &uniform! {
-                model: [
-                    [ 1.0, 0.0, 0.0, 0.0 ],
-                    [ 0.0, 1.0, 0.0, 0.0 ],
-                    [ 0.0, 0.0, 1.0, 0.0 ],
-                    [ 0.0 , 0.0, 0.0, 1.0f32]
-                ],
-                tex: texture_buffer,
-                perspective: perspective,
-                view: camera.view_matrix(),
-                tess_level_x: dimensions.x(),
-                tess_level_y: dimensions.y(),
-                tess_level_z: dimensions.z(),
-                offset: 0u32,
-            },
-            &params
-        ).unwrap();
-        target.finish().unwrap();
-
-        // Don't wait to redraw if event flags nowait
-        if no_wait { return }
-
-        // Wait until next frame redraw should occur
-        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
-        let wait_milliseconds = match 1000 / target_fps >= elapsed_time {
-            true => 1000 / target_fps - elapsed_time,
-            false => 0
-        };
-
-        camera.pass_rotate();
-        let next_interval = start_time + Duration::from_millis(wait_milliseconds);
-        *control_flow = ControlFlow::WaitUntil(next_interval);
+        // Wait until next tick to run loop (barring keyboard events etc)
+        *control_flow = ControlFlow::WaitUntil(manager.next_tick_time(start_time));
         last_frame_time = Instant::now()
     });
 }
