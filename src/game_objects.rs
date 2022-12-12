@@ -448,8 +448,14 @@ impl GameManager {
     }
 
     /// Return whether or not the game is currently paused
-    pub fn is_paused(&self) -> bool {
-        self.state.paused || self.window != GUIState::Menu
+    pub fn is_paused(&mut self) -> bool {
+        if self.cache.queued_allowed_steps > 0 {
+            self.cache.queued_allowed_steps -= 1;
+            self.cache.last_step = Instant::now();
+            return false;
+        }
+
+        (self.state.paused || self.window != GUIState::Menu)
     }
 
     /// Return the configured tick interval in milliseconds
@@ -487,16 +493,6 @@ impl GameManager {
 
     /// Returns whether or not it is time to run the next step, and if so updates the previous step time
     pub fn step_wait_over(&mut self) -> bool {
-        if self.cache.queued_allowed_steps > 0 {
-            self.cache.queued_allowed_steps -= 1;
-            self.cache.last_step = Instant::now();
-            return true;
-        }
-
-        if self.is_paused() {
-            return false;
-        }
-
         if Instant::now().duration_since(self.cache.last_step).as_millis() as u64 >= self.step_interval() {
             self.cache.last_step = Instant::now();
             return true;
@@ -509,6 +505,28 @@ impl GameManager {
         let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
         let wait_milliseconds = match self.tick_interval() >= elapsed_time {
             true => self.tick_interval() - elapsed_time,
+            false => 0,
+        };
+
+        start_time + Duration::from_millis(wait_milliseconds)
+    }
+
+    /// Returns the correct wait time before the next tick should be run
+    pub fn next_frame_time(&self, start_time: Instant) -> Instant {
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match self.frame_interval() >= elapsed_time {
+            true => self.frame_interval() - elapsed_time,
+            false => 0
+        };
+
+        start_time + Duration::from_millis(wait_milliseconds)
+    }
+
+    /// Returns the correct wait time before the next tick should be run
+    pub fn next_step_time(&self, start_time: Instant) -> Instant {
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match self.step_interval() >= elapsed_time {
+            true => self.step_interval() - elapsed_time,
             false => 0
         };
 

@@ -205,16 +205,23 @@ fn main() {
             _ => return
         }
 
-        // Compute next game step at step interval if game isn't paused
+        // Compute next game step at step interval
         if manager.step_wait_over() {
-            computed_buffer_flag = compute_game_state(
-                &in_cycle_kernel,
-                &out_cycle_kernel,
-                &queue,
-                computed_buffer_flag,
-                &in_buffer_cl,
-                &out_buffer_cl,
-            );
+            // Draw if not paused
+            if !manager.is_paused() {
+                computed_buffer_flag = compute_game_state(
+                    &in_cycle_kernel,
+                    &out_cycle_kernel,
+                    &queue,
+                    computed_buffer_flag,
+                    &in_buffer_cl,
+                    &out_buffer_cl,
+                );
+            }
+
+            // Wait until next compute tick to run loop (barring keyboard events etc)
+            *control_flow = ControlFlow::WaitUntil(manager.next_step_time(start_time));
+            last_frame_time = Instant::now()
         }
 
         // Draw new frame at framerate interval
@@ -227,11 +234,10 @@ fn main() {
                 &texture_buffer,
                 0u32
             );
+            // Wait until next frame tick to run loop (barring keyboard events etc)
+            *control_flow = ControlFlow::WaitUntil(manager.next_frame_time(start_time));
+            last_frame_time = Instant::now()
         }
-
-        // Wait until next tick to run loop (barring keyboard events etc)
-        *control_flow = ControlFlow::WaitUntil(manager.next_tick_time(start_time));
-        last_frame_time = Instant::now()
     });
 }
 
