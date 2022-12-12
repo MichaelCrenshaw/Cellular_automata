@@ -1,3 +1,4 @@
+use std::f32::consts;
 use glium::*;
 use glium::index::PrimitiveType;
 use glium::glutin::event::VirtualKeyCode;
@@ -96,8 +97,10 @@ impl Bufferable for SpacedCubeVertexGrid {
 }
 
 // TODO: Implement smoothed camera movement using movement direction and friction
+/// Camera object, apply changes to this object and read the view matrix as uniform for each frame.
 pub struct Camera {
-    position: [f32; 3],
+    altitude: f32,
+    azimuth: f32,
     direction: [f32; 3],
     up: [f32; 3],
     speed: f32,
@@ -106,12 +109,12 @@ pub struct Camera {
     movement_direction: [f32; 3],
 }
 
-/// Camera object, apply changes to this object and read the view matrix as uniform for each frame.
 impl Camera {
     /// Mainly for testing, get camera at a generic position and
     pub fn default() -> Self {
         Camera {
-            position: [0.0, 0.0, 1.0],
+            altitude: 0.0,
+            azimuth: 0.0,
             direction: [0.0, 0.0, 0.0],
             up: [0.0, 1.0, 0.0],
             speed: 0.05,
@@ -123,7 +126,8 @@ impl Camera {
 
     /// Creates a new Camera object
     pub fn new(
-        position: [f32; 3],
+        altitude: f32,
+        azimuth: f32,
         direction: [f32; 3],
         up: [f32; 3],
         speed: f32,
@@ -132,7 +136,8 @@ impl Camera {
         movement_direction: [f32; 3],
     ) -> Self {
         Camera {
-            position,
+            altitude,
+            azimuth,
             direction,
             up,
             speed,
@@ -142,71 +147,64 @@ impl Camera {
         }
     }
 
-    /// Internal function for moving the camera to a normalized position around a sphere
-    fn move_to_position(&mut self, vec: Vec<f32>) {
-        let normal_vec = scaled_vector_reduce(vec, self.scale);
-        for (index, val) in normal_vec.into_iter().enumerate() {
-            self.position[index] = val
-        }
+    /// Converts camera's spherical coordinates to cartesian [x, y, z] coordinates
+    fn as_cartesian(&self) -> [f32; 3] {
+        let radius = self.scale;
+        let theta = self.altitude;
+        let phi = self.azimuth;
+        let x = radius * phi.sin() * theta.cos();
+        let y = radius * phi.sin() * theta.sin();
+        let z = radius * phi.cos();
+        [x, y, z]
     }
 
     /// Move camera up along sphere's logical surface
     pub fn strafe_up(&mut self) {
-        let mut position = self.position;
-        position[1] += self.speed;
-        self.move_to_position(position.to_vec())
+        self.altitude += self.speed;
     }
 
     /// Move camera left along sphere's logical surface
     pub fn strafe_left(&mut self) {
-        let mut position = self.position;
-        position[0] -= self.speed;
-        self.move_to_position(position.to_vec())
+        self.azimuth -= self.speed;
     }
 
     /// Move camera down along sphere's logical surface
     pub fn strafe_down(&mut self) {
-        let mut position = self.position;
-        position[1] -= self.speed;
-        self.move_to_position(position.to_vec())
+        self.altitude -= self.speed;
     }
 
     /// Move camera right along sphere's logical surface
     pub fn strafe_right(&mut self) {
-        let mut position = self.position;
-        position[0] += self.speed;
-        self.move_to_position(position.to_vec())
+        self.azimuth += self.speed;
     }
 
     /// Scale the grid's size up
     pub fn zoom_in(&mut self) {
         let new_scale = self.scale - self.speed;
         if new_scale < 1f32 { self.scale = 1f32 } else { self.scale = new_scale }
-        self.move_to_position(self.position.to_vec())
     }
 
     /// Scale the grid's size down
     pub fn zoom_out(&mut self) {
         self.scale += self.speed;
-        self.move_to_position(self.position.to_vec())
     }
 
     /// Perform a passive rotation on the camera
     pub fn pass_rotate(&mut self) {
-        self.strafe_left()
+        self.strafe_right()
     }
 
     /// Centers camera for viewing the board, meant for 2d boards
     pub fn center(&mut self) {
-        self.position[0] = 0.0;
-        self.position[1] = 0.0;
-        self.position[2] = 0.5;
+        self.altitude = 0.0;
+        self.azimuth = 0.0;
+        self.scale = 1.0;
     }
 
     /// Get view matrix based on the camera's current position and direction
     pub fn view_matrix(&self) -> [[f32; 4]; 4] {
-        let position = self.position;
-        let direction = self.position.into_iter().map(|x| -x).collect::<Vec<f32>>();
+        let position = self.as_cartesian();
+        let direction = self.as_cartesian().into_iter().map(|x| -x).collect::<Vec<f32>>();
         let up = self.up;
 
         // Normalize forward direction
