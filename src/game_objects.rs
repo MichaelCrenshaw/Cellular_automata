@@ -6,6 +6,7 @@ use glium::buffer::{  BufferType, BufferMode };
 use glium::glutin::event::{ElementState, KeyboardInput, VirtualKeyCode};
 use glium::{Display, IndexBuffer, Program, Surface, uniform, VertexBuffer};
 use glium::texture::buffer_texture::BufferTexture;
+use ocl::ffi::libc::stat;
 use crate::render::{Camera, Vertex};
 
 
@@ -338,7 +339,6 @@ impl GUIState {
 pub struct GameOptions {
     fps: u8,
     sps: u8,
-    // TPS should really only ever be the same value
     tps: u8,
     spinning: bool,
     paused: bool,
@@ -350,7 +350,7 @@ impl GameOptions {
         GameOptions {
             fps: 165,
             sps: 20,
-            tps: 255,
+            tps: 165,
             spinning: false,
             paused: false,
         }
@@ -538,6 +538,14 @@ impl GameManager {
         self.cache.queued_allowed_steps += 1;
     }
 
+    /// Compute a new camera tick, changing its position
+    pub fn tick_camera(&mut self) {
+        if self.state.spinning {
+            self.camera.pass_rotate();
+        }
+        self.camera.calculate_position();
+    }
+
     /// Handles a keypress from the main loop; changing state, camera angle, and settings as needed
     pub fn handle_keypress(&mut self, key: KeyboardInput) {
         match key {
@@ -558,22 +566,46 @@ impl GameManager {
                         self.allow_one_step();
                     },
                     key if key == self.settings.strafe_up => {
-                        self.camera.strafe_up();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_up();
+                        } else {
+                            self.camera.end_strafe_vertical();
+                        }
                     },
                     key if key == self.settings.strafe_left => {
-                        self.camera.strafe_left();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_left();
+                        } else {
+                            self.camera.end_strafe_horizontal();
+                        }
                     },
                     key if key == self.settings.strafe_down => {
-                        self.camera.strafe_down();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_down();
+                        } else {
+                            self.camera.end_strafe_vertical();
+                        }
                     },
                     key if key == self.settings.strafe_right => {
-                        self.camera.strafe_right();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_right();
+                        } else {
+                            self.camera.end_strafe_horizontal();
+                        }
                     },
                     key if key == self.settings.zoom_in => {
-                        self.camera.zoom_in();
+                        if state == ElementState::Pressed {
+                            self.camera.start_zoom_in();
+                        } else {
+                            self.camera.end_zoom();
+                        }
                     },
                     key if key == self.settings.zoom_out => {
-                        self.camera.zoom_out();
+                        if state == ElementState::Pressed {
+                            self.camera.start_zoom_out();
+                        } else {
+                            self.camera.end_zoom();
+                        }
                     },
                     key if key == self.settings.toggle_spin && state == ElementState::Pressed => {
                         self.state.spinning = !self.state.spinning;
