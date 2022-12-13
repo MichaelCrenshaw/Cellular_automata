@@ -118,7 +118,7 @@ impl Camera {
             direction: [0.0, 0.0, 0.0],
             up: [0.0, 1.0, 0.0],
             speed: 0.025,
-            scale: 1.0,
+            scale: 1.5,
             friction: 0.05,
             active_direction: [0, 0, 0],
             inertia_direction: [0.0, 0.0, 0.0],
@@ -178,10 +178,6 @@ impl Camera {
                 *inertia = inertia.signum() * (inertia.abs() - self.friction);
             }
         }
-
-        println!("{:?}", self.inertia_direction[0]);
-        println!("{:?}", self.inertia_direction[1]);
-        println!("{:?}", self.inertia_direction[2]);
         self.azimuth += self.inertia_direction[0] * self.speed;
         self.altitude += self.inertia_direction[1] * self.speed;
         self.scale += self.inertia_direction[2] * self.speed;
@@ -191,12 +187,12 @@ impl Camera {
 
     /// Begins to move camera right along sphere's logical surface
     pub fn start_strafe_right(&mut self) {
-        self.active_direction[0] = 1;
+        self.active_direction[0] = -1;
     }
 
     /// Begins to move camera left along sphere's logical surface
     pub fn start_strafe_left(&mut self) {
-        self.active_direction[0] = -1;
+        self.active_direction[0] = 1;
     }
 
     /// Begins to move camera up along sphere's logical surface
