@@ -408,6 +408,7 @@ impl KeyBindings {
 
 /// Data backbone of GameManager, holds values for logical calculations
 struct GameCache {
+    event_list: ocl::EventList,
     last_frame: Instant,
     last_step: Instant,
     last_tick: Instant,
@@ -439,12 +440,18 @@ impl GameManager {
             window,
             state,
             cache: GameCache {
+                event_list: ocl::EventList::new(),
                 last_frame: Instant::now(),
                 last_step: Instant::now(),
                 last_tick: Instant::now(),
                 queued_allowed_steps: 0,
             }
         }
+    }
+
+    /// Returns a mutable reference to game's event list
+    pub fn get_event_list(&mut self) -> &mut ocl::EventList {
+        &mut self.cache.event_list
     }
 
     /// Return whether or not the game is currently paused

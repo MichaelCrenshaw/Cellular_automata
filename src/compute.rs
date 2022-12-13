@@ -1,7 +1,7 @@
 /// All code directly relating to OpenCL, unless the code must be in main loop for various reasons
 extern crate ocl;
 
-use ocl::{Device, Context, Queue, Program, Buffer, Kernel};
+use ocl::{Device, Context, Queue, Program, Buffer, Kernel, EventList};
 use ocl::builders::KernelCmd;
 use crate::game_objects::LastComputed;
 
@@ -39,15 +39,16 @@ pub fn enqueue_kernel_command(
     kernel_command: KernelCmd,
     in_buffer: &Buffer<u8>,
     out_buffer: &Buffer<u8>,
+    event_list: &mut EventList,
 ) -> ocl::Result<()> {
 
     // Get OpenGL buffers by id and acquire them for use by OpenCL
     in_buffer.cmd().gl_acquire().enq()?;
     out_buffer.cmd().gl_acquire().enq()?;
 
-    // Run kernel on GPU with default local work size and global work offset
+    // Schedule event to run after current events in queue have finished
     unsafe {
-        kernel_command.enq()?;
+        kernel_command.enew(event_list).enq()?;
     }
 
     // Release buffers for OpenGL use
@@ -65,6 +66,7 @@ pub(crate) fn compute_game_state(
     last_computed: LastComputed,
     in_buffer_cl: &Buffer<u8>,
     out_buffer_cl: &Buffer<u8>,
+    event_list: &mut EventList,
 ) -> LastComputed {
 
     if last_computed == LastComputed::IN {
@@ -72,12 +74,14 @@ pub(crate) fn compute_game_state(
             create_kernel_command(in_kernel, queue),
             in_buffer_cl,
             out_buffer_cl,
+            event_list,
         ).expect("Could not compute game state from kernel");
     } else {
         enqueue_kernel_command(
             create_kernel_command(out_kernel, queue),
             in_buffer_cl,
             out_buffer_cl,
+            event_list,
         ).expect("Could not compute game state from kernel");
     }
 
