@@ -239,15 +239,13 @@ fn main() {
             last_frame_time = Instant::now()
         }
 
-        // Run camera tick
+        // Run camera tick at tick interval
         if manager.tick_wait_over() {
             manager.tick_camera();
             // Wait until next frame tick to run loop (barring keyboard events etc)
             *control_flow = ControlFlow::WaitUntil(manager.next_tick_time(start_time));
             last_frame_time = Instant::now()
         }
-
-
     });
 }
 
