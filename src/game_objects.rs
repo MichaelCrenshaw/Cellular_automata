@@ -6,6 +6,7 @@ use glium::buffer::{  BufferType, BufferMode };
 use glium::glutin::event::{ElementState, KeyboardInput, VirtualKeyCode};
 use glium::{Display, IndexBuffer, Program, Surface, uniform, VertexBuffer};
 use glium::texture::buffer_texture::BufferTexture;
+use ocl::ffi::libc::stat;
 use crate::render::{Camera, Vertex};
 
 
@@ -338,7 +339,6 @@ impl GUIState {
 pub struct GameOptions {
     fps: u8,
     sps: u8,
-    // TPS should really only ever be the same value
     tps: u8,
     spinning: bool,
     paused: bool,
@@ -350,7 +350,7 @@ impl GameOptions {
         GameOptions {
             fps: 165,
             sps: 20,
-            tps: 255,
+            tps: 165,
             spinning: false,
             paused: false,
         }
@@ -448,8 +448,14 @@ impl GameManager {
     }
 
     /// Return whether or not the game is currently paused
-    pub fn is_paused(&self) -> bool {
-        self.state.paused || self.window != GUIState::Menu
+    pub fn is_paused(&mut self) -> bool {
+        if self.cache.queued_allowed_steps > 0 {
+            self.cache.queued_allowed_steps -= 1;
+            self.cache.last_step = Instant::now();
+            return false;
+        }
+
+        (self.state.paused || self.window != GUIState::Menu)
     }
 
     /// Return the configured tick interval in milliseconds
@@ -487,16 +493,6 @@ impl GameManager {
 
     /// Returns whether or not it is time to run the next step, and if so updates the previous step time
     pub fn step_wait_over(&mut self) -> bool {
-        if self.cache.queued_allowed_steps > 0 {
-            self.cache.queued_allowed_steps -= 1;
-            self.cache.last_step = Instant::now();
-            return true;
-        }
-
-        if self.is_paused() {
-            return false;
-        }
-
         if Instant::now().duration_since(self.cache.last_step).as_millis() as u64 >= self.step_interval() {
             self.cache.last_step = Instant::now();
             return true;
@@ -509,6 +505,28 @@ impl GameManager {
         let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
         let wait_milliseconds = match self.tick_interval() >= elapsed_time {
             true => self.tick_interval() - elapsed_time,
+            false => 0,
+        };
+
+        start_time + Duration::from_millis(wait_milliseconds)
+    }
+
+    /// Returns the correct wait time before the next tick should be run
+    pub fn next_frame_time(&self, start_time: Instant) -> Instant {
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match self.frame_interval() >= elapsed_time {
+            true => self.frame_interval() - elapsed_time,
+            false => 0
+        };
+
+        start_time + Duration::from_millis(wait_milliseconds)
+    }
+
+    /// Returns the correct wait time before the next tick should be run
+    pub fn next_step_time(&self, start_time: Instant) -> Instant {
+        let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
+        let wait_milliseconds = match self.step_interval() >= elapsed_time {
+            true => self.step_interval() - elapsed_time,
             false => 0
         };
 
@@ -518,6 +536,14 @@ impl GameManager {
     /// Allows an additional game step to be calculated without waiting for the step interval
     fn allow_one_step(&mut self) {
         self.cache.queued_allowed_steps += 1;
+    }
+
+    /// Compute a new camera tick, changing its position
+    pub fn tick_camera(&mut self) {
+        if self.state.spinning {
+            self.camera.pass_rotate();
+        }
+        self.camera.calculate_position();
     }
 
     /// Handles a keypress from the main loop; changing state, camera angle, and settings as needed
@@ -540,22 +566,46 @@ impl GameManager {
                         self.allow_one_step();
                     },
                     key if key == self.settings.strafe_up => {
-                        self.camera.strafe_up();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_up();
+                        } else {
+                            self.camera.end_strafe_vertical();
+                        }
                     },
                     key if key == self.settings.strafe_left => {
-                        self.camera.strafe_left();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_left();
+                        } else {
+                            self.camera.end_strafe_horizontal();
+                        }
                     },
                     key if key == self.settings.strafe_down => {
-                        self.camera.strafe_down();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_down();
+                        } else {
+                            self.camera.end_strafe_vertical();
+                        }
                     },
                     key if key == self.settings.strafe_right => {
-                        self.camera.strafe_right();
+                        if state == ElementState::Pressed {
+                            self.camera.start_strafe_right();
+                        } else {
+                            self.camera.end_strafe_horizontal();
+                        }
                     },
                     key if key == self.settings.zoom_in => {
-                        self.camera.zoom_in();
+                        if state == ElementState::Pressed {
+                            self.camera.start_zoom_in();
+                        } else {
+                            self.camera.end_zoom();
+                        }
                     },
                     key if key == self.settings.zoom_out => {
-                        self.camera.zoom_out();
+                        if state == ElementState::Pressed {
+                            self.camera.start_zoom_out();
+                        } else {
+                            self.camera.end_zoom();
+                        }
                     },
                     key if key == self.settings.toggle_spin && state == ElementState::Pressed => {
                         self.state.spinning = !self.state.spinning;
