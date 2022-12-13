@@ -75,7 +75,7 @@ fn main() {
     );
     let platform = Platform::default();
     let device = Device::first(platform).expect("No valid OpenCL device found");
-    let queue = Queue::new(&context, device, Some(CommandQueueProperties::new().out_of_order())).unwrap();
+    let queue = Queue::new(&context, device, Some(CommandQueueProperties::new())).unwrap();
     let program = create_program(
         &context,
         device,
@@ -216,6 +216,7 @@ fn main() {
                     computed_buffer_flag,
                     &in_buffer_cl,
                     &out_buffer_cl,
+                    manager.get_event_list()
                 );
             }
 
