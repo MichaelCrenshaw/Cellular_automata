@@ -5,17 +5,18 @@ mod game_objects;
 extern crate ocl;
 extern crate ocl_interop;
 extern crate glium;
-extern crate core;
+extern crate egui;
+extern crate egui_winit;
+extern crate egui_glium;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use ocl::*;
 use ocl::Buffer as Buffer;
 
 use compute::*;
 use render::*;
 use game_objects::*;
-use glium::{CapabilitiesSource, Display, GlObject, PolygonMode, Surface, uniform};
-use glium::backend::Facade;
+use glium::{Display, GlObject};
 use glium::glutin::{ event_loop, window, dpi, event };
 use glium::glutin::ContextBuilder;
 use glium::glutin::event_loop::ControlFlow;
@@ -27,24 +28,16 @@ fn main() {
     let survive_rules = vec![3, 4];
     let spawn_rules = vec![5];
 
-    // TODO: Limit dimension total size to not go past buffer texture limit
+    // TODO v1.2: Limit board size, enable dynamic resizing
     // Init game objects
     let dimensions = GridDimensions::new(vec![20, 20, 20]);
-    let mut camera = Camera::default();
-    let mut bindings = KeyBindings::default();
-    let mut window_state = GUIState::Menu;
-    let mut game_state = GameOptions::default();
+    let camera = Camera::default();
+    let bindings = KeyBindings::default();
+    let window_state = GUIState::ClearView;
+    let game_state = GameOptions::default();
 
-    let mut manager = GameManager::new(
-        dimensions.clone(),
-        camera,
-        bindings,
-        window_state,
-        game_state,
-    );
 
-    // TODO: Optimize this to only count and add live cells
-    // TODO: Add user-defined input for starting the simulation
+    // TODO v1.2: Move to game manager with dynamic rules, and/or typed positions
     // Init board
     let array_len = &dimensions.dimension_size();
     let mut array_vec: Vec<u8> = Vec::with_capacity(*array_len as usize);
@@ -62,7 +55,7 @@ fn main() {
         .with_inner_size(dpi::LogicalSize::new(1024.0, 768.0))
         .with_title("Cellular Automata")
         .with_transparent(true);
-    let cb = ContextBuilder::new().with_depth_buffer(24);
+    let cb = ContextBuilder::new().with_depth_buffer(24).with_vsync(true);
     let display = Display::new(wb, cb, &events_loop).expect("Could not create display");
 
     // Init ocl interop context from active opengl context
@@ -82,15 +75,17 @@ fn main() {
         Some(kernel_source),
         Some("-cl-no-signed-zeros -cl-fast-relaxed-math -cl-mad-enable -cl-strict-aliasing"));
 
-    // TODO: Fix work size to never overflow, and always batch at high-efficiency
+    // TODO v1.1: Move to game manager and set upper limit to work size
     let worker_dims = array_vec.len();
 
-    // TODO: When using these buffers as TextureBuffers inevitably becomes both too slow and too cumbersome, look into BufferType::UniformBuffer
+    // INFO: While buffers aren't generally memory-capped, a texture buffer has hardware-dependant memory caps;
+    //        The only way around this will be changing how these buffers are read in the future
     // Create OpenGL buffers, which will be used for each game-update; then swapped to compute the next stage
     let buffers = dimensions.generate_grid_buffers(&display, Some(array_vec)).unwrap();
     let in_buffer = buffers.0;
     let out_buffer = buffers.1;
 
+    // TODO v1.1: Move all of this to the game manager, and set up dynamic recompiling
     // Create KernelBuffer to generate kernels from, rather than just reusing existing immutable kernels because OCL doesn't like that other threads "could mutate them"
     let mut in_buffer_cl = Buffer::<u8>::from_gl_buffer(
         &context,
@@ -129,7 +124,8 @@ fn main() {
 
     let board: &dyn Bufferable = &SpacedCubeVertexGrid::new(&[dimensions.x(), dimensions.y(), dimensions.z()]);
 
-    // TODO: Offload both of these to a simplified buffer and basic instancing (with vertices added by compute kernels...)
+    // TODO v1.4: Offload to a smaller vertex buffer containing only cells in the current view, to bypass tex-buffer size restrictions
+    //        Doing this will require much more complex compute code, but allows much more memory for the board itself 
     let vertex_buffer = board.get_vertex_buffer(&display);
     let indices = board.get_index_buffer(&display);
 
@@ -140,7 +136,6 @@ fn main() {
     let texture_out_cycle: BufferTexture<u8> = BufferTexture::from_buffer(&display, out_buffer, BufferTextureType::Unsigned).unwrap();
 
     // Init Glium shaders and program
-    // let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
     let geometry_shader = include_str!("./shaders/generate_cubes.geom");
     let triangle_shader_src = include_str!("./shaders/vertex_shader.glsl");
     let fragment_shader_src = include_str!("./shaders/fragment_shader.glsl");
@@ -155,14 +150,23 @@ fn main() {
         }
     ).unwrap();
 
-    // Main loop
+    // Game Loop variables
     let mut computed_buffer_flag = LastComputed::IN;
-    let mut last_frame_time = Instant::now();
+    let mut manager = GameManager::new(
+        dimensions.clone(),
+        camera,
+        bindings,
+        window_state,
+        game_state,
+        egui_glium::EguiGlium::new(&display, &events_loop),
+    );
 
 
+    // Main loop
     events_loop.run(move |event, _, control_flow| {
         let start_time = Instant::now();
 
+        // TODO v1.1: Move to game manager, it's just messy here
         // Use last computed buffer as texture input
         let texture_buffer = {
             if LastComputed::IN == computed_buffer_flag {
@@ -172,29 +176,53 @@ fn main() {
             }
         };
 
+        // TODO v1.0: Allow traversing through other dimension-slices via the offset variable
+        // Draw new frame at framerate interval, located here to play nicely with egui's antics
+        if manager.frame_wait_over() {
+            manager.draw_frame(
+                &display,
+                &program,
+                &vertex_buffer,
+                &indices,
+                &texture_buffer,
+                0u32,
+            );
+            // Wait until next frame tick to run loop (barring keyboard events etc)
+            *control_flow = ControlFlow::WaitUntil(manager.next_frame_time(start_time));
+        }
+
         match event {
-            event::Event::WindowEvent { event, .. } => match event {
-                // When resizing the window, redraw frame immediately
-                event::WindowEvent::Resized(_) => {
-                    manager.draw_frame(
-                        &display,
-                        &program,
-                        &vertex_buffer,
-                        &indices,
-                        &texture_buffer,
-                        0u32
-                    );
-                    return;
-                },
-                event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => {
-                     &manager.handle_keypress(input);
-                    return;
+            event::Event::WindowEvent { event, .. } => {
+                // Send events to our gui handler
+                let response = &manager.egui.on_event(&event);
+                if response.repaint { display.gl_window().window().request_redraw(); };
+
+                // If the gui didn't notice any changes from our event, send it to game manager
+                if response.consumed { return; }
+                match event {
+                    // When resizing the window, redraw frame immediately
+                    event::WindowEvent::Resized(_) => {
+                        manager.draw_frame(
+                            &display,
+                            &program,
+                            &vertex_buffer,
+                            &indices,
+                            &texture_buffer,
+                            0u32,
+                        );
+                        return;
+                    },
+                    event::WindowEvent::KeyboardInput { device_id: _, input, is_synthetic: _ } => {
+                        manager.handle_keypress(input);
+                        return;
+                    }
+                    event::WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    },
+                    _ => return,
+
                 }
-                event::WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                    return;
-                },
-                _ => return,
             },
             event::Event::NewEvents(cause) => match cause {
                 // If event is the loop's refresh interval expiring, calculate game step
@@ -207,7 +235,7 @@ fn main() {
 
         // Compute next game step at step interval
         if manager.step_wait_over() {
-            // Draw if not paused
+            // Compute if not paused
             if !manager.is_paused() {
                 computed_buffer_flag = compute_game_state(
                     &in_cycle_kernel,
@@ -219,25 +247,8 @@ fn main() {
                     manager.get_event_list()
                 );
             }
-
             // Wait until next compute tick to run loop (barring keyboard events etc)
             *control_flow = ControlFlow::WaitUntil(manager.next_step_time(start_time));
-            last_frame_time = Instant::now()
-        }
-
-        // Draw new frame at framerate interval
-        if manager.frame_wait_over() {
-            manager.draw_frame(
-                &display,
-                &program,
-                &vertex_buffer,
-                &indices,
-                &texture_buffer,
-                0u32
-            );
-            // Wait until next frame tick to run loop (barring keyboard events etc)
-            *control_flow = ControlFlow::WaitUntil(manager.next_frame_time(start_time));
-            last_frame_time = Instant::now()
         }
 
         // Run camera tick at tick interval
@@ -245,7 +256,6 @@ fn main() {
             manager.tick_camera();
             // Wait until next frame tick to run loop (barring keyboard events etc)
             *control_flow = ControlFlow::WaitUntil(manager.next_tick_time(start_time));
-            last_frame_time = Instant::now()
         }
     });
 }

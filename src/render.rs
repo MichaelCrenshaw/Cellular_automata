@@ -1,24 +1,6 @@
-use std::f32::consts;
 use glium::*;
 use glium::index::PrimitiveType;
-use glium::glutin::event::VirtualKeyCode;
 
-
-/// Normalize a vector to a length of 1 with the same proportions
-fn unit_vector_reduce(vec: &Vec<f32>) -> Vec<f32> {
-    let mut vec_magnitude = 0f32;
-    vec.iter().for_each(|x| vec_magnitude += x.powf(2f32));
-    vec_magnitude = f32::sqrt(vec_magnitude);
-    vec.into_iter().map(|x| x / vec_magnitude).collect::<Vec<f32>>()
-}
-
-/// Normalize a vector, then scale the result to produce an artificial transform effect
-fn scaled_vector_reduce(vec: Vec<f32>, scale: f32) -> Vec<f32> {
-    let mut vec_magnitude = 0f32;
-    vec.iter().for_each(|x| vec_magnitude += x.powf(2f32));
-    vec_magnitude = f32::sqrt(vec_magnitude);
-    vec.into_iter().map(|x| x / (vec_magnitude / scale)).collect::<Vec<f32>>()
-}
 
 /// Rendering objects
 #[derive(Copy, Clone)]
@@ -55,7 +37,7 @@ impl SpacedCubeVertexGrid {
         let mut verts = vec![];
         let mut indices = vec![];
 
-        let num_cells: u64 = dims.into_iter().fold(1, |mut res, x| res * *x as u64);
+        let num_cells: u64 = dims.into_iter().fold(1, | res, x| res * *x as u64);
 
         // Generate the positions of all vertices required to display a 3d slice of the given dimension array
         for x in 0..num_cells {
@@ -164,7 +146,7 @@ impl Camera {
     /// Calculates next camera position based on active directions, smoothing logic, friction, and existing inertia
     pub fn calculate_position(&mut self) -> &mut Self {
         // Handle camera inertia
-        for (mut direction, mut inertia) in self.active_direction.iter_mut().zip(self.inertia_direction.iter_mut()) {
+        for (direction, inertia) in self.active_direction.iter_mut().zip(self.inertia_direction.iter_mut()) {
             // If user is moving camera in this axis, set inertia to max
             if *direction != 0 {
                 *inertia = *direction as f32;
@@ -280,9 +262,9 @@ impl Camera {
 
         // View matrix
         [
-            [right[0], up_norm[0], fwd[0], 0.0],
-            [right[1], up_norm[1], fwd[1], 0.0],
-            [right[2], up_norm[2], fwd[2], 0.0],
+            [right[0], up_norm[0], fwd[0], self.direction[0]],
+            [right[1], up_norm[1], fwd[1], self.direction[1]],
+            [right[2], up_norm[2], fwd[2], self.direction[2]],
             [pos[0], pos[1], pos[2], 1.0],
         ]
     }
