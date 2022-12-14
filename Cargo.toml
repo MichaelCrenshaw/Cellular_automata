@@ -1,6 +1,6 @@
 [package]
 name = "gpu_computing"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,4 +9,7 @@ edition = "2021"
 ocl = "0.19.4"
 ocl-interop = "0.1.5"
 glium = "0.32.1"
-image = "0.24.5"
+egui = "0.20.1"
+egui-winit = "0.20.1"
+egui_glium = "0.20.1"
+

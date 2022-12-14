@@ -1,12 +1,11 @@
-use std::fmt::Formatter;
 use std::time::{Duration, Instant};
+use egui_glium::EguiGlium;
 use glium::backend::Facade;
 use glium::buffer::Buffer as GLBuffer;
 use glium::buffer::{  BufferType, BufferMode };
 use glium::glutin::event::{ElementState, KeyboardInput, VirtualKeyCode};
-use glium::{Display, IndexBuffer, Program, Surface, uniform, VertexBuffer};
+use glium::{Display, Frame, IndexBuffer, Program, Surface, uniform, VertexBuffer};
 use glium::texture::buffer_texture::BufferTexture;
-use ocl::ffi::libc::stat;
 use crate::render::{Camera, Vertex};
 
 
@@ -94,7 +93,7 @@ impl GridDimensions {
         size
     }
 
-    // TODO: Uncomment function and add test cases when bitwise logic is added
+    // TODO v2.0: Uncomment function and add test cases when bitwise logic is added
     // /// Get size of grid in bytes required to store the data
     // pub fn dimension_byte_size(&self) -> u64 {
     //     let mut size: u64 = 1;
@@ -113,10 +112,6 @@ impl GridDimensions {
     }
     pub fn z(&self) -> u8 {
         self.dimensions[2]
-    }
-
-    pub fn dims(self) -> Vec<u8> {
-        self.dimensions
     }
 
     /// Generate in and out OpenGL buffers with capacity to hold the cell data for our dimensions
@@ -149,8 +144,6 @@ impl GridDimensions {
         Ok((in_buffer, out_buffer))
     }
 
-    // TODO: Profile and reconsider the generated code from this function,
-    //        manually enforcing branch-less code (or using matrix math) are likely options for improvements
     /// Generate code for OpenCL kernel with hard-coded neighbor logic
     pub fn generate_program_string(&self, survive: Vec<u32>, spawn: Vec<u32>) -> String {
         // Get neighbor indexes
@@ -317,17 +310,12 @@ impl Clone for GridDimensions {
 #[derive(PartialEq, Copy, Clone)]
 pub enum GUIState {
     Menu,
-    Settings,
     ClearView,
 }
 
 impl GUIState {
     pub fn menu(&mut self) {
         *self = GUIState::Menu
-    }
-    
-    pub fn settings(&mut self) {
-        *self = GUIState::Settings
     }
     
     pub fn clear(&mut self) {
@@ -394,7 +382,7 @@ impl KeyBindings {
         KeyBindings {
             menu: VirtualKeyCode::Escape,
             pause: VirtualKeyCode::Space,
-            step_simulation: VirtualKeyCode::Tab,
+            step_simulation: VirtualKeyCode::E,
             strafe_up: VirtualKeyCode::W,
             strafe_left: VirtualKeyCode::A,
             strafe_down: VirtualKeyCode::S,
@@ -422,6 +410,7 @@ pub struct GameManager {
     settings: KeyBindings,
     window: GUIState,
     state: GameOptions,
+    pub egui: EguiGlium,
     cache: GameCache,
 }
 
@@ -432,6 +421,7 @@ impl GameManager {
         settings: KeyBindings,
         window: GUIState,
         state: GameOptions,
+        egui_glium: EguiGlium,
     ) -> GameManager {
         GameManager {
             dimensions,
@@ -439,6 +429,7 @@ impl GameManager {
             settings,
             window,
             state,
+            egui: egui_glium,
             cache: GameCache {
                 event_list: ocl::EventList::new(),
                 last_frame: Instant::now(),
@@ -462,7 +453,7 @@ impl GameManager {
             return false;
         }
 
-        (self.state.paused || self.window != GUIState::Menu)
+        self.state.paused
     }
 
     /// Return the configured tick interval in milliseconds
@@ -559,7 +550,6 @@ impl GameManager {
             KeyboardInput { state, virtual_keycode, .. } => {
                 if let Some(key) = virtual_keycode { match key {
                     key if key == self.settings.menu && state == ElementState::Pressed => {
-                        // TODO: Implement a menu view
                         if self.window == GUIState::Menu {
                             self.window.clear();
                         } else {
@@ -625,13 +615,13 @@ impl GameManager {
 
     /// Draws a new frame with current variables for all objects
     pub fn draw_frame(
-        &self,
+        &mut self,
         display: &Display,
         program: &Program,
         vertex_buffer: &VertexBuffer<Vertex>,
         index_buffer: &IndexBuffer<u32>,
         texture_buffer: &BufferTexture<u8>,
-        offset: u32
+        offset: u32,
     ) {
         let mut target = display.draw();
         target.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
@@ -687,7 +677,44 @@ impl GameManager {
             },
             &params
         ).unwrap();
+
+        if self.window == GUIState::Menu {
+            self.draw_menu(display, &mut target);
+        }
+
         target.finish().unwrap();
+    }
+
+    /// Draws game menu and modifies state based on input
+    fn draw_menu(&mut self, display: &Display, target: &mut Frame) {
+        let _ = self.egui.run(&display, |egui_ctx| {
+            // The layout, logic, and variables of the menu gui as the user sees it
+            egui::SidePanel::left("menu").default_width(50.0).show(egui_ctx, |ui| {
+                // Display options
+                ui.label("Camera ticks per second");
+                let tps_slider = egui::widgets::Slider::new(&mut self.state.tps, 60..=165);
+                ui.add(tps_slider);
+
+                ui.label("Frames per second");
+                let fps_slider = egui::widgets::Slider::new(&mut self.state.fps, 30..=165);
+                ui.add(fps_slider);
+
+                ui.label("Board steps per second");
+                let sps_slider = egui::widgets::Slider::new(&mut self.state.sps, 1..=60);
+                ui.add(sps_slider);
+
+                // TODO: v1.1: Allow altering game logic, and recompiling the compute kernel dynamically
+                // Past this point all changes require a recompile of some part of the game
+
+                // TODO v1.2: Allow altering starting cells and grid size
+                // Past this point all changes require restarting the game completely
+
+                // TODO v1.3: Allow windows behavior changes via the menu
+                // Past this point all changes require restarting the entire program
+            });
+        });
+
+        self.egui.paint(display, target);
     }
 }
 
@@ -824,7 +851,7 @@ pub mod tests {
         }
     }
 
-    // TODO: improve this test
+    // TODO v1.3: revise this test
     #[test]
     fn test_create_compute_shader() {
         let cases = [
