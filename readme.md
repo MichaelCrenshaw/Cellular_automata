@@ -2,6 +2,8 @@
 
 Please note that while this project is still under development, the principle goals of this project have been met and all other features will be considered quality of life updates— when I have the time.
 
+https://github.com/MichaelCrenshaw/Cellular_automata/assets/57016022/68bfe5d3-0db9-4e73-b7be-5d89a86c46a7
+
 <h2>Abstract</h2>
 <hr>
 <p>
